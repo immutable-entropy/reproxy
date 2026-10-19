@@ -1,0 +1,78 @@
+@echo off
+rem Installs, removes or inspects the reProxy MCP scheduled task -- the
+rem Windows counterpart of the reproxy-mcp systemd user service on Linux and
+rem the LaunchAgent on macOS. Installed beside the .exe, with the
+rem placeholders below substituted by packaging/win/build.sh.
+rem
+rem   "%ProgramFiles%\@APP_NAME@\@APP_ID@-mcp-service.cmd" install
+rem   ... uninstall
+rem   ... status
+rem
+rem The task belongs to whoever runs this and starts at their logon, because
+rem everything it keeps is that user's own %APPDATA%\@APP_ID@. Nothing
+rem creates it at install time: a background proxy should be something you
+rem asked for.
+setlocal
+
+set "TASK=@TASK_NAME@"
+set "BIN=%~dp0@APP_ID@.exe"
+set "MCP_PORT=@MCP_PORT@"
+set "PROXY_PORT=@SERVICE_PROXY_PORT@"
+set "DATA=%APPDATA%\@APP_ID@"
+
+if not exist "%BIN%" (
+	echo error: no @APP_ID@.exe beside this script ^(expected "%BIN%"^).
+	exit /b 1
+)
+
+if /i "%~1"=="install"   goto install
+if /i "%~1"=="uninstall" goto uninstall
+if /i "%~1"=="status"    goto status
+goto usage
+
+:install
+rem The proxy port is deliberately not the default 7193. Whichever process
+rem starts first takes 7193 and later ones step up to 7194, 7195 and so on,
+rem so a task sitting on 7193 would quietly swallow the traffic from a
+rem browser pointed at it while the window showed nothing.
+rem
+rem /f replaces an existing task, so this is also how you point it at a new
+rem installation folder.
+schtasks /create /f /tn "%TASK%" /sc onlogon /rl limited ^
+	/tr "\"%BIN%\" -headless -port %PROXY_PORT%"
+if errorlevel 1 (
+	echo.
+	echo Could not create the task. If this says access is denied, run the
+	echo same command from an Administrator Command Prompt.
+	exit /b 1
+)
+rem onlogon tasks only start at the next sign-in; start it now as well so the
+rem server is there straight away.
+schtasks /run /tn "%TASK%" >nul 2>&1
+echo.
+echo Task "%TASK%" created and started.
+echo MCP server:  http://127.0.0.1:%MCP_PORT%/mcp
+echo Bearer token: %DATA%\secrets.json
+echo Proxy port:  %PROXY_PORT%
+echo.
+echo It has no console, so it writes no log. To watch it, stop the task and
+echo run: "%BIN%" -headless -verbose
+exit /b 0
+
+:uninstall
+schtasks /end /tn "%TASK%" >nul 2>&1
+schtasks /delete /tn "%TASK%" /f
+if errorlevel 1 exit /b 1
+echo Task "%TASK%" removed. Data in %DATA% was left alone.
+exit /b 0
+
+:status
+schtasks /query /tn "%TASK%" /fo list /v
+exit /b %errorlevel%
+
+:usage
+echo Usage: %~nx0 install^|uninstall^|status
+echo.
+echo Runs @APP_NAME@'s MCP server in the background, with no window open, as
+echo a scheduled task ^("%TASK%"^) started at your logon.
+exit /b 2

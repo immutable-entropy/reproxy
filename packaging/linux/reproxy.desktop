@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=reProxy
+GenericName=Intercepting Proxy
+Comment=Inspect, edit and replay HTTP traffic through a local proxy
+Exec=reproxy
+TryExec=reproxy
+Icon=reproxy
+Terminal=false
+Categories=Development;Network;Security;
+Keywords=proxy;http;https;intercept;replay;capture;debug;security;testing;mitm;socks;
+StartupNotify=true
+StartupWMClass=reproxy

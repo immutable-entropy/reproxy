@@ -1,0 +1,119 @@
+#!/bin/sh
+# Installs, removes or inspects the reProxy MCP LaunchAgent -- the macOS
+# counterpart of the reproxy-mcp systemd user service on Linux. Shipped
+# inside the app bundle as Contents/Resources/reproxy-mcp-service, with the
+# placeholders below substituted by packaging/mac/build.sh.
+#
+#   /Applications/@APP_NAME@.app/Contents/Resources/reproxy-mcp-service install
+#   ... uninstall
+#   ... status
+#
+# It is a LaunchAgent (per user), not a LaunchDaemon, for the same reason
+# the Linux unit is a user service: everything it keeps is the user's own
+# ~/.@APP_ID@. Nothing enables it at install time -- a .dmg runs no scripts,
+# and a background proxy should be something you asked for.
+set -eu
+
+LABEL="@SERVICE_LABEL@"
+MCP_PORT="@MCP_PORT@"
+PROXY_PORT="@SERVICE_PROXY_PORT@"
+DATA_DIR="$HOME/.@APP_ID@"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LOG="$DATA_DIR/@SERVICE_ID@.log"
+
+# The binary that goes in the plist is this script's neighbour, so the agent
+# follows the bundle wherever it was dragged.
+HERE=$(cd "$(dirname "$0")" && pwd)
+BIN=$(cd "$HERE/../MacOS" && pwd)/@APP_ID@
+
+# launchd addresses a per-user service as gui/<uid>/<label>.
+DOMAIN="gui/$(id -u)"
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+write_plist() {
+	[ -x "$BIN" ] || die "no reProxy binary at $BIN"
+	mkdir -p "$(dirname "$PLIST")" "$DATA_DIR"
+
+	# -headless runs everything except the window: the SOCKS proxy, the
+	# group hub, and -- while this process holds the hub role -- the MCP
+	# server on 127.0.0.1:$MCP_PORT.
+	#
+	# The proxy port is deliberately not the default 7193. Whichever process
+	# starts first takes 7193 and later ones step up to 7194, 7195 and so
+	# on, so an agent sitting on 7193 would quietly swallow the traffic from
+	# a browser pointed at it while the user watched an empty window.
+	cat > "$PLIST" <<-PLIST
+	<?xml version="1.0" encoding="UTF-8"?>
+	<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+	<plist version="1.0">
+	<dict>
+		<key>Label</key>
+		<string>$LABEL</string>
+		<key>ProgramArguments</key>
+		<array>
+			<string>$BIN</string>
+			<string>-headless</string>
+			<string>-port</string>
+			<string>$PROXY_PORT</string>
+		</array>
+		<key>RunAtLoad</key>
+		<true/>
+		<key>KeepAlive</key>
+		<dict>
+			<key>SuccessfulExit</key>
+			<false/>
+		</dict>
+		<key>ProcessType</key>
+		<string>Background</string>
+		<key>StandardOutPath</key>
+		<string>$LOG</string>
+		<key>StandardErrorPath</key>
+		<string>$LOG</string>
+	</dict>
+	</plist>
+	PLIST
+
+	plutil -lint "$PLIST" >/dev/null || die "generated $PLIST is not valid"
+}
+
+case "${1:-}" in
+	install)
+		write_plist
+		# bootout first so "install" is also how you update the agent after
+		# moving or replacing the app; it fails when nothing is loaded.
+		launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+		launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+		launchctl bootstrap "$DOMAIN" "$PLIST"
+		printf '%s loaded.\n' "$LABEL"
+		printf 'MCP server:  http://127.0.0.1:%s/mcp (bearer token in %s/secrets.json)\n' \
+			"$MCP_PORT" "$DATA_DIR"
+		printf 'Proxy port:  %s\n' "$PROXY_PORT"
+		printf 'Log:         %s\n' "$LOG"
+		;;
+
+	uninstall)
+		launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+		rm -f "$PLIST"
+		printf '%s unloaded and removed. Data in %s was left alone.\n' "$LABEL" "$DATA_DIR"
+		;;
+
+	status)
+		if [ ! -f "$PLIST" ]; then
+			printf '%s is not installed (no %s).\n' "$LABEL" "$PLIST"
+			exit 1
+		fi
+		launchctl print "$DOMAIN/$LABEL" 2>/dev/null ||
+			printf '%s is installed but not loaded; run: %s install\n' "$LABEL" "$0"
+		;;
+
+	*)
+		cat >&2 <<-USAGE
+		Usage: ${0##*/} install|uninstall|status
+
+		Runs @APP_NAME@'s MCP server in the background, with no window open,
+		as a per-user LaunchAgent ($LABEL).
+		USAGE
+		exit 2
+		;;
+esac

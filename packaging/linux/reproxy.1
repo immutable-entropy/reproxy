@@ -1,0 +1,75 @@
+.TH REPROXY 1 "2026-10-13" "reProxy" "User Commands"
+.SH NAME
+reproxy \- intercepting proxy for inspecting, editing and replaying HTTP traffic
+.SH SYNOPSIS
+.B reproxy
+[\fIflags\fR]
+.SH DESCRIPTION
+.B reProxy
+runs a local SOCKS5 proxy that records the HTTP traffic passing through it,
+and a desktop window for inspecting that traffic, holding requests and
+responses for editing, and replaying them.
+.PP
+Point a browser's SOCKS5 proxy at 127.0.0.1 on the configured port
+(7193 by default). To read HTTPS, install reProxy's CA certificate into the
+browser from Settings.
+.SH FLAGS
+.TP
+.BI \-port " n"
+Proxy listen port for this session. The default is the saved setting,
+initially 7193. If the port is in use, the next free one above it is taken.
+.TP
+.BI \-config " path"
+Path to the settings file. The default is
+.IR ~/.reproxy/config.json .
+.TP
+.B \-headless
+Run without the window: the proxy, the group hub and the MCP server only.
+This is what the
+.B reproxy\-mcp
+service runs. The process runs until it is interrupted or terminated.
+.TP
+.B \-verbose
+Log connection-level detail to standard error.
+.TP
+.B \-version
+Print the version and exit.
+.SH MCP SERVER
+reProxy serves its tools to MCP clients over HTTP on 127.0.0.1:3917 by
+default, at the
+.I /mcp
+path, behind a bearer token kept in
+.IR ~/.reproxy/secrets.json .
+The server runs inside whichever reProxy process currently holds the hub
+role, so it is available whenever at least one process is running.
+.PP
+To keep it available with no window open, enable the per-user service:
+.PP
+.RS
+.nf
+systemctl \-\-user enable \-\-now reproxy\-mcp
+.fi
+.RE
+.PP
+On macOS the same service is a LaunchAgent, installed from inside the
+application bundle:
+.PP
+.RS
+.nf
+/Applications/reProxy.app/Contents/Resources/reproxy\-mcp\-service install
+.fi
+.RE
+.PP
+Requests an agent sends are confined to the domain the original request
+targeted.
+.SH FILES
+.TP
+.I ~/.reproxy/
+All persistent state: settings, the HTTPS interception CA, saved
+engagements, agent configuration and secrets.
+.TP
+.I ~/.reproxy/config.json
+Settings, as edited in the Settings window.
+.SH SEE ALSO
+.BR systemctl (1),
+.BR launchctl (1)

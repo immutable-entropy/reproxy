@@ -1,0 +1,142 @@
+# Spec template for packaging/rpm/build.sh, which substitutes the
+# at-sign-delimited placeholders below. This file is not a valid spec on its
+# own, and build.sh refuses to continue if any placeholder survives.
+#
+# The files themselves are staged by stage_linux() before rpmbuild runs, so
+# %install only copies that tree in. That keeps the deb and the rpm installing
+# byte-identical files, with only the metadata around them differing.
+
+# A Go binary carries no useful DWARF once linked with -s -w, and the
+# debuginfo pass would fail trying to extract it. Stripping again would gain
+# nothing and risks mangling Go's build-id note, so turn both off. brp-compress
+# is deliberately left on: it gzips the man page.
+%global debug_package %{nil}
+%global __brp_strip %{nil}
+%global __brp_strip_static_archive %{nil}
+%global __brp_strip_comment_note %{nil}
+
+Name:           @APP_ID@
+Version:        @VERSION@
+Release:        @RELEASE@%{?dist}
+Summary:        @SUMMARY@
+
+License:        @LICENSE@
+URL:            @HOMEPAGE@
+BuildArch:      @RPM_ARCH@
+
+# Qt is pulled in by soname rather than by package name: the Qt 6 packages are
+# called qt6-qtbase-gui on Fedora and libQt6Gui6 on openSUSE, but both provide
+# libQt6Gui.so.6, which rpmbuild's dependency generator picks out of the built
+# binary. Only what cannot be derived from the ELF is listed here.
+Requires:       hicolor-icon-theme
+
+%description
+reProxy runs a local SOCKS5 proxy that records the HTTP traffic passing
+through it, and a desktop window for inspecting that traffic, holding
+requests and responses for editing, and replaying them.
+
+It also serves its tools to MCP clients over loopback HTTP, so an agent can
+watch, intercept, edit and replay traffic alongside you. Requests an agent
+sends are confined to the domain the original request targeted.
+
+The MCP server runs inside the app while a window is open. To keep it
+available without one, enable the per-user @SERVICE_ID@ service.
+
+%prep
+# Nothing to unpack: the tree is staged before rpmbuild is called.
+
+%build
+# Nothing to compile: build_binary() already produced the binary.
+
+%install
+rm -rf %{buildroot}
+mkdir -p %{buildroot}
+cp -a %{_stagedir}/. %{buildroot}/
+
+%files
+%{_bindir}/@APP_ID@
+%{_datadir}/applications/@APP_ID@.desktop
+%{_datadir}/icons/hicolor/*/apps/@APP_ID@.png
+%{_datadir}/icons/hicolor/scalable/apps/@APP_ID@.svg
+%{_prefix}/lib/systemd/user/@SERVICE_ID@.service
+%{_mandir}/man1/@APP_ID@.1*
+%dir %{_datadir}/doc/@APP_ID@
+%doc %{_datadir}/doc/@APP_ID@/README.md
+
+%post
+# Fedora drives both caches from file triggers, but openSUSE and others do
+# not, so refresh them here when the tools are present.
+if [ -x /usr/bin/gtk-update-icon-cache ]; then
+    /usr/bin/gtk-update-icon-cache -q -t -f %{_datadir}/icons/hicolor >/dev/null 2>&1 || :
+fi
+if [ -x /usr/bin/update-desktop-database ]; then
+    /usr/bin/update-desktop-database -q %{_datadir}/applications >/dev/null 2>&1 || :
+fi
+
+# $1 is 1 on a first install and 2 or more on an upgrade.
+if [ "$1" = 1 ]; then
+cat <<'EOF'
+
+reProxy is installed. Launch it from your applications menu, or run: @APP_ID@
+
+To keep the MCP server available with no window open, enable the
+per-user service (not enabled by default):
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now @SERVICE_ID@
+
+It listens on 127.0.0.1:@MCP_PORT@; the bearer token is in ~/.@APP_ID@/secrets.json.
+
+EOF
+fi
+
+%preun
+# $1 is 0 on an uninstall and 1 or more on an upgrade. Leave the service
+# running across an upgrade; the new binary takes effect on its next restart.
+if [ "$1" = 0 ]; then
+    # @SERVICE_ID@ is a user service, so there is no single instance to stop:
+    # each logged-in user may have one. Both steps are best-effort, because a
+    # user manager may not be running and that must not block the removal.
+    if [ -x /usr/bin/loginctl ] && [ -x /usr/bin/systemctl ]; then
+        for u in $(/usr/bin/loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+            [ -n "$u" ] || continue
+            /usr/bin/systemctl --user --machine="${u}@.host" stop @SERVICE_ID@.service >/dev/null 2>&1 || :
+        done
+    fi
+    # Drop any system-wide enablement, so no symlink is left pointing at a
+    # unit that is about to go away.
+    if [ -x /usr/bin/systemctl ]; then
+        /usr/bin/systemctl --global disable @SERVICE_ID@.service >/dev/null 2>&1 || :
+    fi
+fi
+
+%postun
+if [ -x /usr/bin/gtk-update-icon-cache ]; then
+    /usr/bin/gtk-update-icon-cache -q -t -f %{_datadir}/icons/hicolor >/dev/null 2>&1 || :
+fi
+if [ -x /usr/bin/update-desktop-database ]; then
+    /usr/bin/update-desktop-database -q %{_datadir}/applications >/dev/null 2>&1 || :
+fi
+
+# $1 is 0 on the final removal. There is no rpm equivalent of dpkg's purge:
+# what remains either way is each user's own data directory, which a package
+# must not delete from home directories it does not own -- and removing the
+# interception CA silently would be a nasty surprise for anyone who installed
+# it in a browser. Say what to remove instead of guessing.
+if [ "$1" = 0 ]; then
+cat <<'EOF'
+
+reProxy is removed. Per-user data was left alone; to remove yours:
+
+    rm -rf ~/.@APP_ID@
+
+That holds the settings, the HTTPS interception CA, saved engagements
+and stored API keys. If you installed the CA in a browser or in the
+system trust store, remove it there too.
+
+EOF
+fi
+
+%changelog
+* @CHANGELOG_DATE@ @MAINTAINER_RPM@ - @VERSION@-@RELEASE@
+- Build of @RAW_VERSION@.

@@ -1,0 +1,35 @@
+[Unit]
+Description=reProxy MCP server
+Documentation=man:reproxy(1)
+After=network.target
+
+[Service]
+Type=simple
+# -headless runs everything except the window: the SOCKS proxy, the group
+# hub, and -- while this process holds the hub role -- the MCP server, on
+# 127.0.0.1:3917 by default. An external agent can then reach reProxy
+# whether or not a window is open; when one is, it joins this process's
+# group and the agent sees it too.
+#
+# The proxy port is deliberately NOT the default 7193. Whichever process
+# starts first takes 7193 and later ones step up to 7194, 7195 and so on, so
+# a service sitting on 7193 would quietly swallow the traffic from a browser
+# pointed at it while the user watches an empty window. Keeping the service
+# on its own port leaves 7193 to the app. Change it here if it clashes.
+ExecStart=/usr/bin/reproxy -headless -port 7293
+Restart=on-failure
+RestartSec=5
+
+# The server is loopback-only and stores its state under ~/.reproxy, so it
+# needs the home directory writable and little else.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

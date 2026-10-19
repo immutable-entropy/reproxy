@@ -1,0 +1,53 @@
+#!/bin/sh
+# Post-removal: refresh the desktop caches now the entries are gone, and on
+# purge tell the user what is left.
+set -e
+
+refresh_caches() {
+	if command -v update-icon-caches >/dev/null 2>&1; then
+		update-icon-caches /usr/share/icons/hicolor >/dev/null 2>&1 || true
+	elif command -v gtk-update-icon-cache >/dev/null 2>&1; then
+		gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
+	fi
+	if command -v update-desktop-database >/dev/null 2>&1; then
+		update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || true
+	fi
+}
+
+case "$1" in
+	remove)
+		refresh_caches
+		;;
+
+	purge)
+		refresh_caches
+
+		# Everything the package owns is gone by now. What remains is each
+		# user's own data directory (settings, the HTTPS interception CA,
+		# saved engagements, agent keys). A maintainer script must not delete
+		# files in home directories it does not own -- and deleting the CA
+		# silently would be a nasty surprise for anyone who installed it in a
+		# browser -- so say what to remove instead of guessing.
+		cat <<-'EOF'
+
+		reProxy is purged. Per-user data was left alone; to remove yours:
+
+		    rm -rf ~/.reproxy
+
+		That holds the settings, the HTTPS interception CA, saved engagements
+		and stored API keys. If you installed the CA in a browser or in the
+		system trust store, remove it there too.
+
+		EOF
+		;;
+
+	upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+		;;
+
+	*)
+		echo "postrm called with unknown argument '$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0

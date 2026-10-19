@@ -1,0 +1,46 @@
+/*
+ * Resource script for packaging/win/build.sh: the icon Explorer and the
+ * taskbar draw, the manifest above, and the version information the file's
+ * Properties dialog shows. windres compiles it to a .syso, which the Go
+ * linker picks up from cmd/reproxy while building for Windows.
+ *
+ * The placeholders are substituted by build.sh; it refuses to continue if
+ * any survives. No headers are included, so the numeric fields are spelled
+ * out: FILEOS 0x40004 is VOS_NT_WINDOWS32 and FILETYPE 0x1 is VFT_APP.
+ */
+
+/* 1 is IDI_APPLICATION: the first icon in the file is the one Windows uses. */
+1 ICON "@ICON_FILE@"
+
+/* 24 is RT_MANIFEST, and resource id 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID. */
+1 24 "@MANIFEST_FILE@"
+
+1 VERSIONINFO
+FILEVERSION @VERSION_COMMA@
+PRODUCTVERSION @VERSION_COMMA@
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		/* 0409 is US English, 04b0 is Unicode. */
+		BLOCK "040904b0"
+		BEGIN
+			VALUE "CompanyName", "@VENDOR@"
+			VALUE "FileDescription", "@SUMMARY@"
+			VALUE "FileVersion", "@RAW_VERSION@"
+			VALUE "InternalName", "@APP_ID@"
+			VALUE "LegalCopyright", "@COPYRIGHT@"
+			VALUE "OriginalFilename", "@APP_ID@.exe"
+			VALUE "ProductName", "@APP_NAME@"
+			VALUE "ProductVersion", "@RAW_VERSION@"
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END

@@ -1,0 +1,45 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/ubuntu
+{
+	"name": "reproxy",
+	"image": "mcr.microsoft.com/devcontainers/base:resolute",
+	"features": {
+		"ghcr.io/devcontainers/features/go:1": {
+			"version": "1.26.9"
+		}
+	},
+	"postCreateCommand": ".devcontainer/postCreateScript.sh",
+	"runArgs": ["--shm-size=1g"],
+	"forwardPorts": [7193, 7194, 7195, 7196, 7197, 7198, 7199, 7200, 3917],
+	"portsAttributes": {
+		"7193": {
+			"label": "reProxy SOCKS5 proxy",
+			"onAutoForward": "silent"
+		},
+		"3917": {
+			"label": "reProxy MCP server",
+			"onAutoForward": "silent"
+		}
+	},
+	"otherPortsAttributes": {
+		"onAutoForward": "silent"
+	},
+	"mounts": [
+		"source=reproxy-go-build-cache,target=/home/vscode/.cache/go-build,type=volume",
+		"source=../reproxy-plugins,target=/workspaces/reproxy-plugins,type=bind,readonly=false,consistency=cached"
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go"
+			],
+			"settings": {
+				"go.useLanguageServer": true,
+				"go.lintTool": "staticcheck",
+				"[go]": {
+					"editor.formatOnSave": true
+				}
+			}
+		}
+	}
+}

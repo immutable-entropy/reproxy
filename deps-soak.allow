@@ -1,0 +1,28 @@
+# Exceptions to the dependency soak period (tools/depsoak, `make deps-check`).
+#
+# Every module version go.mod requires, and the Go toolchain, must have been
+# public for 14 days before we take it. A version may skip the wait only if
+# it is listed here: `module version reason`. Add a line only after reading
+# the diff from the version it replaces (not just its release notes), and
+# say what the version fixes that can't wait. depsoak reports a line as
+# STALE once its version has soaked or is no longer required: delete it then.
+
+# Security releases. Go 1.26.0 had 32 standard-library vulnerabilities
+# reachable from our code (govulncheck, 2026-10-16), among them crypto/x509
+# and crypto/tls verification bugs on the replay path and os.Root escapes
+# (GO-2026-4970, GO-2026-4602) on plugin installation. 1.26.9 fixes all of
+# them, including the HTTP/2 bugs govulncheck also lists against
+# golang.org/x/net (we compile only x/net/publicsuffix, identical in v0.60.0).
+toolchain go1.26.9 Go security release; fixes 32 reachable stdlib vulnerabilities in 1.26.0
+# GHSA-fpmh-frq8-7rj8 (high): zstd panics on two-block frames, and bodyview
+# decodes zstd from any server we proxy. v1.20.2 is v1.20.1 plus that fix and
+# bounds checks; v1.20.3 (a large zstd rewrite with new assembly) waits.
+github.com/klauspost/compress v1.20.2 GHSA-fpmh-frq8-7rj8 fix; diff from v1.20.1 reviewed 2026-10-16
+
+# Reviewed early for in-progress work.
+# miqt v0.15.0 fixes a use-after-free in strings returned from Go override
+# callbacks; diff from v0.14.0 reviewed (cgo directives only add -std flags).
+github.com/mappu/miqt v0.15.0 use-after-free fix; diff from v0.14.0 reviewed 2026-10-16
+# vt v0.1.0 is byte-identical to its 2026-10-12 pseudo-version; diff from
+# a5dee49 (2026-09-01) reviewed. The Terminal tab needs its key-input fix.
+github.com/charmbracelet/x/vt v0.1.0 diff from a5dee49 reviewed 2026-10-16; Terminal tab needs its key fix

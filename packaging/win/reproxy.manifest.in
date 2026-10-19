@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Application manifest for packaging/win/build.sh, which substitutes the
+  at-sign-delimited placeholders and compiles this into the .exe with the
+  icon and version resource (see reproxy.rc.in). Windows reads it to decide
+  three things about the process before any of our code runs:
+
+    * it asks for no elevation (asInvoker): reProxy writes only to
+      %APPDATA%\reproxy and listens on loopback;
+    * it is per-monitor DPI aware, which is what Qt 6 expects -- without
+      this Windows scales the window as a bitmap on a HiDPI screen;
+    * it knows Windows 10 and 11, so no compatibility shims are applied.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+	<assemblyIdentity type="win32" name="@BUNDLE_ID@" version="@VERSION_QUAD@" processorArchitecture="*"/>
+	<description>@SUMMARY@</description>
+
+	<trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+		<security>
+			<requestedPrivileges>
+				<requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+			</requestedPrivileges>
+		</security>
+	</trustInfo>
+
+	<compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+		<application>
+			<!-- Windows 10 and 11 -->
+			<supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+			<!-- Windows 8.1 -->
+			<supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+		</application>
+	</compatibility>
+
+	<application xmlns="urn:schemas-microsoft-com:asm.v3">
+		<windowsSettings>
+			<dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+			<dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">permonitorv2,permonitor</dpiAwareness>
+			<!-- UTF-8 for the narrow CRT APIs, so console output is not mangled. -->
+			<activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+		</windowsSettings>
+	</application>
+</assembly>

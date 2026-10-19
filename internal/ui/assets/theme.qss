@@ -1,0 +1,814 @@
+/*
+ * reProxy stylesheet (a Go text/template).
+ *
+ * Colours are palette keys ({{.text}} etc.) filled in per theme from the
+ * palettes in theme.go — keep the two in sync. Widgets opt into specific
+ * looks via objectName (e.g. #PanelHeader) rather than per-widget
+ * setStyleSheet calls, so all styling lives here.
+ */
+
+* {
+    outline: none;
+}
+
+QMainWindow, QDialog {
+    background: {{.windowBg}};
+}
+
+QWidget {
+    color: {{.text}};
+}
+
+/* ---- Menu bar & menus ------------------------------------------------- */
+
+QMenuBar {
+    background: {{.surface}};
+    border-bottom: 1px solid {{.border}};
+    padding: 2px 6px;
+}
+QMenuBar::item {
+    padding: 5px 10px;
+    border-radius: 6px;
+    background: transparent;
+}
+QMenuBar::item:selected {
+    background: {{.hoverStrong}};
+}
+QMenu {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 8px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 28px 6px 14px;
+    border-radius: 5px;
+}
+QMenu::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+QMenu::item:disabled {
+    color: {{.textDisabled}};
+}
+QMenu::separator {
+    height: 1px;
+    background: {{.borderSubtle}};
+    margin: 4px 8px;
+}
+/* The title over a group of menu items (mainWindow.addMenuSection): a label
+ * in a widget action, since a stylesheet collapses Qt's own section to the
+ * separator rule above. */
+#MenuSection {
+    color: {{.muted}};
+    font-weight: 600;
+    padding: 8px 14px 3px 14px;
+}
+
+/* ---- Navigation bar ---------------------------------------------------- */
+
+/* The items are painted in Go (navbar.go); only the bar's surface and the
+ * divider facing the content are styled here. "side" is set by navBar.setSide. */
+#NavBar {
+    background: {{.surface}};
+}
+#NavBar[side="left"] {
+    border-right: 1px solid {{.border}};
+}
+#NavBar[side="right"] {
+    border-left: 1px solid {{.border}};
+}
+#NavBar[side="top"] {
+    border-bottom: 1px solid {{.border}};
+}
+#NavBar[side="bottom"] {
+    border-top: 1px solid {{.border}};
+}
+
+/* ---- Panels ----------------------------------------------------------- */
+
+#Panel {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 10px;
+}
+#PanelHeader {
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+#PanelTitle {
+    font-weight: 600;
+}
+#SessionsPane {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 10px;
+}
+#ApprovalCard {
+    background: {{.chipBg}};
+    border: 1px solid {{.held}};
+    border-radius: 8px;
+}
+
+/* ---- Agents panel ----------------------------------------------------- */
+
+/* The transcript is framed as the "chat window", clearly apart from the
+ * input box beneath it. */
+#ChatArea {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 10px;
+}
+#AgentTranscript {
+    background: transparent;
+    border: none;
+}
+/* The input and its Send button share one bordered control. */
+#AgentInputBox {
+    background: {{.surface}};
+    border: 1px solid {{.inputBorder}};
+    border-radius: 10px;
+}
+#AgentInput {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 6px 8px;
+}
+/* Send, Stop and the mode chevron are the input box's right edge: square
+ * against the text area, rounded where the box is, and its full height. The
+ * chevron is divided from Send by a hairline of the button's own ink. */
+#AgentSendButton, #AgentStopButton {
+    background: {{.accent}};
+    border: none;
+    border-radius: 0;
+    color: {{.onAccent}};
+    font-weight: 600;
+    padding: 6px 14px;
+    min-width: 0;
+}
+#AgentSendButton:hover, #AgentStopButton:hover {
+    background: {{.accentHover}};
+}
+#AgentSendButton:disabled {
+    background: {{.hoverStrong}};
+    color: {{.textDisabled}};
+}
+#AgentStopButton {
+    background: {{.serverError}};
+}
+#AgentModeButton {
+    background: {{.accent}};
+    border: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.3);
+    border-top-right-radius: 9px;
+    border-bottom-right-radius: 9px;
+    color: {{.onAccent}};
+    font-weight: 600;
+    padding: 6px 7px;
+    min-width: 12px;
+}
+#AgentModeButton:hover, #AgentModeButton:open {
+    background: {{.accentHover}};
+}
+#AgentModeButton::menu-indicator {
+    image: none;
+    width: 0;
+}
+/* Sessions read as blocks rather than bare rows. */
+#SessionsList {
+    background: transparent;
+    border: none;
+}
+#SessionsList::item {
+    padding: 8px 10px;
+    margin: 2px 0;
+    border: 1px solid {{.borderSubtle}};
+    border-radius: 8px;
+}
+#SessionsList::item:hover:!selected {
+    background: {{.hover}};
+}
+#SessionsList::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+#Muted {
+    color: {{.muted}};
+}
+#Badge {
+    color: {{.textSubtle}};
+    background: {{.chipBg}};
+    border-radius: 9px;
+    padding: 1px 8px;
+}
+
+/* ---- Request-list filter bar ------------------------------------------ */
+
+#FilterBar {
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+/* The field and the regex toggle share one bordered box. */
+#FilterInputBox {
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+    background: {{.surface}};
+}
+#FilterInputBox[invalid="true"] {
+    border: 1px solid {{.serverError}};
+    background: {{.dangerBg}};
+}
+#FilterEdit {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 4px 8px;
+}
+/* The toggle sits inside the box, divided from the field by a line in the
+ * input's own border colour, so it reads as part of the input. */
+#RegexToggle {
+    border: none;
+    border-left: 1px solid {{.inputBorder}};
+    border-radius: 0;
+    background: transparent;
+    color: {{.muted}};
+    font-family: "DejaVu Sans Mono", monospace;
+    font-weight: 600;
+    padding: 4px 6px;
+    min-width: 20px;
+}
+#RegexToggle:hover {
+    background: {{.hover}};
+}
+#RegexToggle:checked {
+    background: {{.accent}};
+    color: {{.onAccent}};
+}
+
+/* A standalone pill in a panel header (the Traffic panel's DNS toggle):
+ * the same weights as the filter toggles, but bordered on every side since
+ * it has no input box to sit in. */
+#HeaderToggle {
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+    background: transparent;
+    color: {{.muted}};
+    font-family: "DejaVu Sans Mono", monospace;
+    font-weight: 600;
+    padding: 2px 8px;
+}
+#HeaderToggle:hover {
+    background: {{.hover}};
+    color: {{.text}};
+}
+#HeaderToggle:checked {
+    background: {{.accent}};
+    border-color: {{.accent}};
+    color: {{.onAccent}};
+}
+
+QSplitter::handle {
+    background: transparent;
+}
+
+/* ---- Request list ----------------------------------------------------- */
+
+QListView {
+    background: {{.surface}};
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+/* ---- Replay history --------------------------------------------------- */
+
+#ReplayHistory {
+    background: {{.surface}};
+    border: none;
+    font-family: "DejaVu Sans Mono", monospace;
+}
+#ReplayHistory::item {
+    padding: 4px 10px;
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+#ReplayHistory::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+
+/* ---- Map --------------------------------------------------------------- */
+
+#ExplorerTree {
+    background: {{.surface}};
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    outline: none;
+}
+#ExplorerTree::item {
+    padding: 4px 2px;
+}
+#ExplorerTree::item:hover {
+    background: {{.hover}};
+}
+#ExplorerTree::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+#ExplorerCanvas {
+    background: {{.surface}};
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+#ExplorerControls {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 8px;
+}
+#ExplorerHint {
+    color: {{.muted}};
+    background: transparent;
+}
+#ExplorerDetailTitle {
+    font-weight: 600;
+    font-family: "DejaVu Sans Mono", monospace;
+}
+#ExplorerDoc {
+    background: transparent;
+    border: none;
+    padding: 4px 10px;
+}
+#RequestsTable {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 8px;
+    outline: none;
+}
+#RequestsTable::item {
+    padding: 4px 6px;
+}
+#RequestsTable::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+#RequestsTable QHeaderView::section {
+    background: {{.surface}};
+    color: {{.muted}};
+    border: none;
+    border-bottom: 1px solid {{.borderSubtle}};
+    padding: 5px 6px;
+}
+
+/* ---- Detail view ------------------------------------------------------ */
+
+#DetailSummary {
+    font-weight: 600;
+}
+/* The target a request was collected under; the square is tinted in Go
+ * with that target's own colour. */
+#TargetTag {
+    color: {{.textSubtle}};
+    background: {{.chipBg}};
+    border-radius: 9px;
+    padding: 2px 10px;
+}
+
+/* ---- Targets ----------------------------------------------------------- */
+
+#TargetList {
+    background: {{.surface}};
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+#TargetList::item {
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+#TargetList::item:hover {
+    background: {{.hover}};
+}
+#TargetList::item:selected {
+    background: {{.selected}};
+}
+
+/* MasterList: the bordered, item-separated list on the Plugins, Findings and
+ * Agents settings pages, so each reads as one list of items. */
+#MasterList {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}
+#MasterList::item {
+    padding: 8px 8px;
+    margin: 1px 0;
+    border-radius: 6px;
+    color: {{.text}};
+}
+#MasterList::item:hover:!selected {
+    background: {{.hover}};
+}
+#MasterList::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+/* An update is available for a plugin (the Plugins window). */
+#UpdateBadge {
+    color: {{.onAccent}};
+    background: {{.accent}};
+    border-radius: 9px;
+    padding: 1px 8px;
+    font-weight: 600;
+}
+#UpdateBar {
+    border: 1px solid {{.accent}};
+    border-radius: 6px;
+}
+#HeldBadge {
+    color: {{.warnText}};
+    background: {{.warnBg}};
+    border-radius: 9px;
+    padding: 2px 10px;
+    font-weight: 600;
+}
+
+/* ---- Findings ---------------------------------------------------------- */
+
+#FindingList {
+    background: {{.surface}};
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+#FindingList::item {
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+#FindingList::item:hover {
+    background: {{.hover}};
+}
+#FindingList::item:selected {
+    background: {{.selected}};
+}
+/* A finding nobody has opened yet is tinted until they do. The count of
+ * these is what the navigation bar's Findings badge shows, so the tint and
+ * the badge always agree. A viewed row is transparent, which lets the
+ * list's own hover and selection show through. */
+#FindingRow {
+    background: transparent;
+}
+#FindingRow[unviewed="true"] {
+    background: {{.unviewedBg}};
+}
+/* The name of one entry in a finding's key/value store. */
+#FieldKey {
+    color: {{.muted}};
+}
+#TypeChecklist {
+    background: {{.surface}};
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+}
+#DetailScroll {
+    background: {{.surface}};
+}
+/* ---- Structured message editor --------------------------------------- */
+
+#EditorToolbar {
+    background: {{.surfaceAlt}};
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+#StartLine {
+    font-weight: 600;
+}
+#HeaderKey {
+    color: {{.headerKey}};
+}
+QLineEdit#HeaderKey, QLineEdit#HeaderValue {
+    padding: 3px 6px;
+}
+QLineEdit:read-only {
+    background: {{.surfaceAlt}};
+    color: {{.textSubtle}};
+}
+/* Code editor header: title on the left, language selector on the right. */
+#EditorHeader {
+    background: {{.windowBg}};
+    border-top: 1px solid {{.borderSubtle}};
+    border-bottom: 1px solid {{.borderSubtle}};
+}
+#EditorTitle {
+    color: {{.muted}};
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Syntax problems in the code editor, below the text. */
+#IssueBar {
+    color: {{.text}};
+    font-size: 12px;
+    padding: 5px 14px;
+    background: {{.windowBg}};
+    border-top: 1px solid {{.borderSubtle}};
+}
+
+#LinkButton {
+    border: none;
+    background: transparent;
+    color: {{.accent}};
+    padding: 2px 2px;
+    min-width: 0;
+    text-align: left;
+}
+#LinkButton:hover {
+    color: {{.accentHover}};
+    text-decoration: underline;
+}
+#CodeBody {
+    border: none;
+    padding: 2px 4px;
+}
+#Gutter {
+    background: {{.gutterBg}};
+}
+#HeaderScroll {
+    background: {{.surface}};
+}
+
+QTabWidget::pane {
+    border: none;
+    border-top: 1px solid {{.borderSubtle}};
+}
+QTabBar {
+    qproperty-drawBase: 0;
+    border: none;
+}
+QTabBar::tab {
+    background: transparent;
+    color: {{.muted}};
+    padding: 8px 14px;
+    margin-left: 6px;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+QTabBar::tab:selected {
+    color: {{.text}};
+    border-bottom: 2px solid {{.accent}};
+}
+QTabBar::tab:hover:!selected {
+    color: {{.text}};
+}
+/* Closable tabs (Replay). The × images are painted at startup. */
+QTabBar::close-button {
+    image: url({{.closeIcon}});
+    subcontrol-position: right;
+    margin-left: 4px;
+}
+QTabBar::close-button:hover {
+    image: url({{.closeHover}});
+}
+
+QPlainTextEdit {
+    background: {{.surface}};
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 6px 8px;
+    selection-background-color: {{.selectionBg}};
+    selection-color: {{.text}};
+}
+
+#EmptyState {
+    color: {{.muted}};
+}
+#EmptyTitle {
+    color: {{.text}};
+    font-size: 15px;
+    font-weight: 600;
+}
+
+/* ---- Status bar ------------------------------------------------------- */
+
+QStatusBar {
+    background: {{.surface}};
+    border-top: 1px solid {{.border}};
+    color: {{.textSubtle}};
+}
+QStatusBar::item {
+    border: none;
+}
+
+/* ---- Form controls ---------------------------------------------------- */
+
+QSpinBox, QDoubleSpinBox, QLineEdit {
+    background: {{.surface}};
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+    padding: 5px 8px;
+    min-height: 18px;
+}
+QSpinBox:focus, QDoubleSpinBox:focus, QLineEdit:focus {
+    border: 1px solid {{.accent}};
+}
+
+QPushButton {
+    background: {{.surface}};
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+    padding: 6px 16px;
+    min-width: 64px;
+}
+QPushButton:hover {
+    background: {{.hover}};
+}
+QPushButton:default, #PrimaryButton {
+    background: {{.accent}};
+    border-color: {{.accent}};
+    color: {{.onAccent}};
+}
+QPushButton:default:hover, #PrimaryButton:hover {
+    background: {{.accentHover}};
+}
+QPushButton:disabled {
+    color: {{.textDisabled}};
+    background: {{.windowBg}};
+}
+#IconButton {
+    border: none;
+    background: transparent;
+    color: {{.muted}};
+    min-width: 0;
+    padding: 4px;
+}
+#IconButton:hover {
+    color: {{.serverError}};
+    background: {{.dangerBg}};
+}
+
+QComboBox {
+    background: {{.surface}};
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 20px;
+}
+/* A drop-down that isn't a combo box (the Map's content filter: a menu of
+ * checkboxes) is styled to match one. */
+#ComboButton {
+    background: {{.surface}};
+    border: 1px solid {{.inputBorder}};
+    border-radius: 6px;
+    padding: 4px 26px 4px 8px;
+    min-height: 20px;
+}
+#ComboButton:pressed, #ComboButton:open {
+    border: 1px solid {{.accent}};
+}
+/* Select All / Select None at the top of a checkbox menu. */
+#MenuLink {
+    color: {{.accent}};
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 3px 6px;
+}
+#MenuLink:hover {
+    background: {{.hover}};
+}
+#ComboButton::menu-indicator {
+    image: url({{.arrowDown}});
+    width: 10px;
+    height: 6px;
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    right: 9px;
+}
+QComboBox:focus, QComboBox:on {
+    border: 1px solid {{.accent}};
+}
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+/* {{.arrowDown}} is replaced with a painted image's path at startup. */
+QComboBox::down-arrow {
+    image: url({{.arrowDown}});
+    width: 10px;
+    height: 6px;
+}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
+    color: {{.textDisabled}};
+    background: {{.windowBg}};
+}
+QComboBox QAbstractItemView {
+    background: {{.surface}};
+    border: 1px solid {{.border}};
+    selection-background-color: {{.selected}};
+    selection-color: {{.text}};
+    outline: none;
+}
+
+QCheckBox, QRadioButton {
+    spacing: 8px;
+}
+
+QDialogButtonBox {
+    dialogbuttonbox-buttons-have-icons: 0;
+}
+
+#SettingsSection {
+    font-weight: 600;
+}
+#ErrorText {
+    color: {{.serverError}};
+}
+#WarningText {
+    color: {{.warnText}};
+    background: {{.warnBg}};
+    border: 1px solid {{.warnBorder}};
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+/* ---- Settings window -------------------------------------------------- */
+
+#SettingsNav {
+    background: {{.windowBg}};
+    border: none;
+    border-right: 1px solid {{.border}};
+    padding: 10px 8px;
+}
+#SettingsNav::item {
+    padding: 0 10px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+    color: {{.text}};
+}
+#SettingsNav::item:hover {
+    background: {{.hoverStrong}};
+}
+#SettingsNav::item:selected {
+    background: {{.selected}};
+    color: {{.text}};
+}
+/* Group headings, and pages that can't be opened (an engagement's, with
+   none open). */
+#SettingsNav::item:disabled {
+    color: {{.muted}};
+    background: transparent;
+}
+#SettingsPage, #SettingsPage > QWidget > QWidget {
+    background: {{.surface}};
+}
+#SettingsPageTitle {
+    font-size: 16px;
+    font-weight: 600;
+}
+#SettingsFooter {
+    background: {{.surface}};
+    border-top: 1px solid {{.border}};
+}
+#RulesEditor {
+    background: {{.surfaceAlt}};
+    border: 1px solid {{.border}};
+    border-radius: 8px;
+}
+#RulesHeader {
+    color: {{.muted}};
+    font-size: 12px;
+}
+
+/* ---- Scroll bars ------------------------------------------------------ */
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 2px;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 2px;
+}
+QScrollBar::handle {
+    background: {{.scrollHandle}};
+    border-radius: 3px;
+    min-height: 24px;
+    min-width: 24px;
+}
+QScrollBar::handle:hover {
+    background: {{.scrollHover}};
+}
+QScrollBar::add-line, QScrollBar::sub-line,
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
+    border: none;
+    width: 0;
+    height: 0;
+}
+
+QToolTip {
+    background: {{.tooltipBg}};
+    color: {{.tooltipText}};
+    border: none;
+    padding: 4px 8px;
+}
