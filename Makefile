@@ -9,7 +9,7 @@ CORE_PKGS := ./internal/browser/... ./internal/bodyview/... ./internal/capture/.
 # out; mac has to run on macOS, and win needs makensis plus a mingw Qt.
 TYPE ?= deb
 
-.PHONY: build run test test-core vet fmt clean package icons deps-check vulncheck hooks
+.PHONY: build run test test-core test-ui print-core-pkgs vet fmt clean package icons deps-check vulncheck hooks
 
 # -trimpath keeps the build machine's paths (home directory, module cache)
 # out of the binary, and makes a release reproducible from its source.
@@ -23,12 +23,19 @@ run: build
 
 # -race is limited to the Qt-free packages: race-instrumenting the Qt
 # bindings means a separate, very slow rebuild of them.
-test: test-core
+test: test-core test-ui
+
+# The packages that need Qt: the first run compiles the bindings.
+test-ui:
 	go test ./internal/ui/... ./cmd/...
 
 # Fast loop for proxy/capture work: skips compiling the Qt bindings.
 test-core:
 	go test -race $(CORE_PKGS)
+
+# For CI, which vets the same packages it tests.
+print-core-pkgs:
+	@echo $(CORE_PKGS)
 
 vet:
 	go vet ./...

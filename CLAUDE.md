@@ -97,7 +97,11 @@ build toward them unless asked. Do keep every change consistent with them.
   project owner): no mention of AI, assistants, models or the agent that
   made the change, and no `Co-Authored-By` or "Generated with" lines.
 - `make test-core` runs the Qt-free packages with `-race`: fast, no display
-  needed. `make test` runs everything. Don't add `-race` to the Qt packages:
+  needed. `make test` runs everything (`make test-ui` is the Qt half).
+  GitHub Actions runs both on every push to any branch
+  (`.github/workflows/test.yml`: the core job with gofmt and vet, and the
+  Qt job in an Ubuntu 26.04 container like the devcontainer). Actions are
+  pinned to a release's commit SHA, published 14 or more days earlier. Don't add `-race` to the Qt packages:
   it forces a separate rebuild of the Qt bindings that takes about 20 minutes.
 - **Dependencies soak for 14 days.** Never run `go get -u`, `go get
   …@latest` or anything else that takes the newest version: pick a version
