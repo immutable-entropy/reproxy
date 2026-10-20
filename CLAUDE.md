@@ -90,6 +90,12 @@ build toward them unless asked. Do keep every change consistent with them.
 
 ## Working in this repo
 
+- **Commit each change as it is made**, to the current branch, one commit
+  per change (set by the project owner), rather than leaving work
+  uncommitted for later.
+- **Commit messages describe the change and nothing else** (set by the
+  project owner): no mention of AI, assistants, models or the agent that
+  made the change, and no `Co-Authored-By` or "Generated with" lines.
 - `make test-core` runs the Qt-free packages with `-race`: fast, no display
   needed. `make test` runs everything. Don't add `-race` to the Qt packages:
   it forces a separate rebuild of the Qt bindings that takes about 20 minutes.
