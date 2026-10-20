@@ -133,9 +133,10 @@ Recommends: ca-certificates
 Suggests: google-chrome-stable | chromium | firefox
 Homepage: $APP_HOMEPAGE
 Description: $APP_SUMMARY
- reProxy runs a local SOCKS5 proxy that records the HTTP traffic passing
- through it, and a desktop window for inspecting that traffic, holding
- requests and responses for editing, and replaying them.
+ reProxy runs a local proxy (SOCKS5, SOCKS4/4a, HTTP or HTTPS) that records
+ the HTTP traffic passing through it, and a desktop window for inspecting
+ that traffic, holding requests and responses for editing, and replaying
+ them.
  .
  It also serves its tools to MCP clients over loopback HTTP, so an agent can
  watch, intercept, edit and replay traffic alongside you. Requests an agent

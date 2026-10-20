@@ -19,7 +19,7 @@ import (
 	"reproxy/internal/upstream"
 )
 
-// DefaultProxyPort is the SOCKS5 listen port used when none is configured.
+// DefaultProxyPort is the proxy's listen port used when none is configured.
 const DefaultProxyPort = 7193
 
 // DefaultProxyHost is the interface the proxy listens on by default. The
@@ -50,7 +50,8 @@ type Config struct {
 	// ProxyHost is the IP address of the interface the proxy listens on;
 	// 0.0.0.0 or :: means all interfaces.
 	ProxyHost string `json:"proxy_host"`
-	// ProxyPort is the TCP port the SOCKS5 proxy listens on.
+	// ProxyPort is the TCP port the proxy listens on, for every protocol it
+	// speaks (SOCKS5, SOCKS4/4a, HTTP and HTTPS).
 	ProxyPort int `json:"proxy_port"`
 	// Intercept configures which messages are held when interception is on.
 	Intercept intercept.Settings `json:"intercept"`
