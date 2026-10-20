@@ -874,3 +874,80 @@ func TestConcernAndAutoRead(t *testing.T) {
 		t.Error("a both-low draft wasn't auto-read on record")
 	}
 }
+
+// While a review hold is set, a raised finding waits for the reviewer
+// instead of arriving unread; scoring it settles it — unread only if
+// notable — and a release lets it through unread.
+func TestReviewHold(t *testing.T) {
+	s, a := open(t)
+	draft := func(v string) Draft {
+		return Draft{Value: v, Notes: "n", Source: SourcePlugin, Author: "p"}
+	}
+	s.SetReviewHold(func(d Draft) bool { return d.Author != "self" })
+
+	notable, _, _ := s.Record(draft("notable"))
+	dull, _, _ := s.Record(draft("dull"))
+	failed, _, _ := s.Record(draft("failed"))
+	own, _, _ := s.Record(Draft{Value: "own", Notes: "n", Source: SourceAgent, Author: "self"})
+	mine, _, _ := s.Record(Draft{Value: "mine", Source: SourceUser})
+	scored, _, _ := s.Record(Draft{Value: "scored", Notes: "n", Source: SourcePlugin, Confidence: ptrInt(90)})
+	for _, f := range []Finding{notable, dull, failed} {
+		if !f.AwaitingReview || f.Unread() {
+			t.Fatalf("%q: awaiting=%v unread=%v", f.Value, f.AwaitingReview, f.Unread())
+		}
+	}
+	for _, f := range []Finding{own, mine, scored} {
+		if f.AwaitingReview {
+			t.Fatalf("%q held, but the reviewer won't review it", f.Value)
+		}
+	}
+	if got := s.AwaitingReview(); len(got) != 3 {
+		t.Fatalf("awaiting = %v", got)
+	}
+	if n := s.Unviewed(); n != 2 { // own and scored
+		t.Fatalf("unviewed = %d, want 2", n)
+	}
+
+	// One score isn't a review; both are.
+	s.SetConfidence(notable.ID, ptrInt(80))
+	if f, _ := s.Get(notable.ID); !f.AwaitingReview {
+		t.Fatal("settled on one score")
+	}
+	s.SetConcern(notable.ID, ptrInt(70))
+	s.SetConfidence(dull.ID, ptrInt(85))
+	s.SetConcern(dull.ID, ptrInt(10)) // real, but of no concern
+	if f, _ := s.Get(notable.ID); f.AwaitingReview || !f.Unread() {
+		t.Fatalf("notable: awaiting=%v unread=%v", f.AwaitingReview, f.Unread())
+	}
+	if f, _ := s.Get(dull.ID); f.AwaitingReview || f.Unread() {
+		t.Fatalf("dull: awaiting=%v unread=%v", f.AwaitingReview, f.Unread())
+	}
+
+	// A review that couldn't score it lets it through unread, and it stays
+	// that way across a reopen.
+	if n, err := s.ReleaseReview([]uint64{failed.ID, notable.ID}); n != 1 || err != nil {
+		t.Fatalf("released %d, %v", n, err)
+	}
+	s2 := NewStore()
+	s2.SetTypes(types)
+	if err := s2.Use(a.DB()); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := s2.Get(failed.ID); f.AwaitingReview || !f.Unread() {
+		t.Fatalf("failed after reopen: awaiting=%v unread=%v", f.AwaitingReview, f.Unread())
+	}
+
+	// Seen again, a finding reviewed as not notable is still not news.
+	s.Record(draft("dull"))
+	if f, _ := s.Get(dull.ID); f.Unread() {
+		t.Fatal("a re-sighting of a dull finding came back unread")
+	}
+
+	// A finding waiting when the hold is lifted is released by the caller.
+	late, _, _ := s.Record(draft("late"))
+	s.SetReviewHold(nil)
+	s.ReleaseReview(nil)
+	if f, _ := s.Get(late.ID); f.AwaitingReview || !f.Unread() {
+		t.Fatalf("late: awaiting=%v unread=%v", f.AwaitingReview, f.Unread())
+	}
+}

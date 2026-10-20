@@ -61,6 +61,10 @@ type Store struct {
 
 	subs map[int]func(Event)
 	next int
+
+	// hold says whether a new finding waits for the reviewer's first look
+	// (see SetReviewHold); nil holds nothing.
+	hold func(Draft) bool
 }
 
 // NewStore returns an empty store with no database behind it. Call Use to
@@ -317,7 +321,7 @@ func (s *Store) Unviewed() int {
 	for _, f := range s.list {
 		// An unreviewed finding (no score) needs attention; a reviewed one
 		// only nags while its score is at or above the floor.
-		if !f.Viewed && (f.Confidence == nil || *f.Confidence >= ConfidenceFloor) {
+		if f.Unread() && (f.Confidence == nil || *f.Confidence >= ConfidenceFloor) {
 			n++
 		}
 	}
@@ -350,7 +354,7 @@ func (s *Store) Record(d Draft) (Finding, bool, error) {
 	now := time.Now()
 
 	if existing := s.matchLocked(d.Key()); existing != nil {
-		merge(existing, d, types, now)
+		merge(existing, d, types, now, s.hold != nil)
 		out := existing.clone()
 		err := s.saveLocked(existing)
 		s.mu.Unlock()
@@ -373,6 +377,9 @@ func (s *Store) Record(d Draft) (Finding, bool, error) {
 		Created:    now,
 		Updated:    now,
 	}
+	// A finding the reviewer will score (it reviews those with no
+	// confidence) waits for it rather than being announced now.
+	f.AwaitingReview = d.Source.Raised() && d.Confidence == nil && s.hold != nil && s.hold(d)
 	maybeAutoRead(f) // a draft pre-scored both-low needs no notification
 	addSightings(f, d, now)
 	s.nextID++
@@ -420,8 +427,10 @@ func addSightings(f *Finding, d Draft, now time.Time) {
 	}
 }
 
-// merge folds a draft into the finding that already holds its value.
-func merge(f *Finding, d Draft, types []string, now time.Time) {
+// merge folds a draft into the finding that already holds its value. held
+// says a reviewer is judging what the user sees, so a fresh sighting of a
+// finding it has already scored is only news if that score was notable.
+func merge(f *Finding, d Draft, types []string, now time.Time, held bool) {
 	for _, id := range types {
 		if !f.HasType(id) {
 			f.Types = append(f.Types, id)
@@ -440,7 +449,7 @@ func merge(f *Finding, d Draft, types []string, now time.Time) {
 		}
 	}
 	addSightings(f, d, now)
-	if d.Source.Raised() {
+	if d.Source.Raised() && !(held && f.Confidence != nil && f.Concern != nil && !f.Notable()) {
 		// A fresh sighting is news; whether it nags the badge then depends on
 		// the finding's confidence (see Unviewed), not on this.
 		f.Viewed = false
@@ -461,7 +470,83 @@ func merge(f *Finding, d Draft, types []string, now time.Time) {
 		f.Concern = &c
 	}
 	maybeAutoRead(f) // a re-sighting with both scores low shouldn't nag
+	settleReview(f)
 	f.Updated = now
+}
+
+// settleReview ends a finding's wait for the reviewer once it has both
+// scores: it stays unread if the review found it notable, and is marked
+// read if not. A finding the user opened meanwhile stays read either way.
+func settleReview(f *Finding) {
+	if !f.AwaitingReview || f.Confidence == nil || f.Concern == nil {
+		return
+	}
+	f.AwaitingReview = false
+	if !f.Notable() {
+		f.Viewed = true
+	}
+}
+
+// SetReviewHold sets which new findings wait for the findings reviewer's
+// first look instead of arriving unread (see Finding.AwaitingReview): the
+// app sets it while a reviewer is enabled, and clears it (nil) when none is.
+// It is consulted, under the store's lock, for each finding raised without
+// a confidence score, so it must not call back into the store.
+func (s *Store) SetReviewHold(hold func(Draft) bool) {
+	s.mu.Lock()
+	s.hold = hold
+	s.mu.Unlock()
+}
+
+// AwaitingReview returns the IDs of the findings waiting for the reviewer,
+// oldest first.
+func (s *Store) AwaitingReview() []uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ids []uint64
+	for _, f := range s.list {
+		if f.AwaitingReview {
+			ids = append(ids, f.ID)
+		}
+	}
+	return ids
+}
+
+// ReleaseReview stops the given findings waiting for the reviewer, so they
+// arrive unread as if no reviewer were set: what the reviewer does with a
+// finding it couldn't score (its turn failed, was stopped, or ended without
+// getting to it). IDs no longer waiting are skipped, and nil releases every
+// finding that is. It returns how many were released, with one Reset for
+// the lot.
+func (s *Store) ReleaseReview(ids []uint64) (int, error) {
+	s.mu.Lock()
+	var targets []*Finding
+	if ids == nil {
+		targets = s.list
+	} else {
+		for _, id := range ids {
+			if f, ok := s.byID[id]; ok {
+				targets = append(targets, f)
+			}
+		}
+	}
+	n := 0
+	var firstErr error
+	for _, f := range targets {
+		if !f.AwaitingReview {
+			continue
+		}
+		f.AwaitingReview = false
+		if err := s.saveLocked(f); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		n++
+	}
+	s.mu.Unlock()
+	if n > 0 {
+		s.emit(Event{Kind: Reset})
+	}
+	return n, firstErr
 }
 
 // scored returns a clamped copy of a draft's score, or nil to leave the
@@ -608,6 +693,7 @@ func (s *Store) SetConfidence(id uint64, confidence *int) error {
 	return s.change(id, true, func(f *Finding) error {
 		f.Confidence = scored(confidence)
 		maybeAutoRead(f)
+		settleReview(f)
 		return nil
 	})
 }
@@ -619,6 +705,7 @@ func (s *Store) SetConcern(id uint64, concern *int) error {
 	return s.change(id, true, func(f *Finding) error {
 		f.Concern = scored(concern)
 		maybeAutoRead(f)
+		settleReview(f)
 		return nil
 	})
 }
@@ -752,7 +839,7 @@ func (s *Store) Select(q Query) []Finding {
 	all := s.List()
 	out := make([]Finding, 0, len(all))
 	for _, f := range all {
-		if q.Unviewed && f.Viewed {
+		if q.Unviewed && !f.Unread() {
 			continue
 		}
 		if q.UnreviewedOnly && f.Confidence != nil {

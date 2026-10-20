@@ -53,7 +53,7 @@ func (s *Store) loadLocked() error {
 
 func (s *Store) readFindings() (map[uint64]*Finding, []uint64, error) {
 	rows, err := s.db.Query(`
-		SELECT seq, value, notes, fields, source, author, viewed, hidden, confidence, concern, created, updated
+		SELECT seq, value, notes, fields, source, author, viewed, hidden, awaiting_review, confidence, concern, created, updated
 		FROM findings ORDER BY seq`)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading findings: %w", err)
@@ -67,16 +67,18 @@ func (s *Store) readFindings() (map[uint64]*Finding, []uint64, error) {
 			f                   Finding
 			fields              string
 			viewed, hidden      bool
+			awaiting            bool
 			confidence, concern sql.NullInt64
 			created, updated    int64
 			source, author      string
 		)
 		if err := rows.Scan(&f.ID, &f.Value, &f.Notes, &fields, &source, &author,
-			&viewed, &hidden, &confidence, &concern, &created, &updated); err != nil {
+			&viewed, &hidden, &awaiting, &confidence, &concern, &created, &updated); err != nil {
 			return nil, nil, fmt.Errorf("reading findings: %w", err)
 		}
 		f.Fields = parseFields(fields)
 		f.Source, f.Author, f.Viewed, f.Hidden = Source(source), author, viewed, hidden
+		f.AwaitingReview = awaiting
 		if confidence.Valid { // a null confidence means the finding is unreviewed
 			c := int(confidence.Int64)
 			f.Confidence = &c
@@ -164,15 +166,15 @@ func (s *Store) saveLocked(f *Finding) error {
 		return *v
 	}
 	if _, err := tx.Exec(`
-		INSERT INTO findings (seq, value, value_key, notes, fields, source, author, viewed, hidden, confidence, concern, created, updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO findings (seq, value, value_key, notes, fields, source, author, viewed, hidden, awaiting_review, confidence, concern, created, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (seq) DO UPDATE SET
 			value = excluded.value, value_key = excluded.value_key, notes = excluded.notes,
 			fields = excluded.fields, source = excluded.source, author = excluded.author,
-			viewed = excluded.viewed, hidden = excluded.hidden,
+			viewed = excluded.viewed, hidden = excluded.hidden, awaiting_review = excluded.awaiting_review,
 			confidence = excluded.confidence, concern = excluded.concern, updated = excluded.updated`,
 		f.ID, f.Value, Draft{Value: f.Value}.Key(), f.Notes, fields, string(f.Source), f.Author,
-		f.Viewed, f.Hidden, nullable(f.Confidence), nullable(f.Concern), f.Created.UnixNano(), f.Updated.UnixNano()); err != nil {
+		f.Viewed, f.Hidden, f.AwaitingReview, nullable(f.Confidence), nullable(f.Concern), f.Created.UnixNano(), f.Updated.UnixNano()); err != nil {
 		return fmt.Errorf("saving finding %d: %w", f.ID, err)
 	}
 

@@ -314,6 +314,14 @@ build toward them unless asked. Do keep every change consistent with them.
   on screen and nothing else — it is still stored, searched and handed to
   agents and plugins, because a value an agent can't read is one it can't
   test — and a merge can hide a finding but never un-hide it.
+  While the findings reviewer (`app/findingsreview.go`, an agent session)
+  is enabled, a new finding it will review is held back
+  (`Finding.AwaitingReview`, through `Store.SetReviewHold`): not unread and
+  not in the badge until its review settles it — unread if it scores
+  `Notable` (both scores at or above their floors), read if not — or the
+  turn that set out to review it ends without scoring it, which releases it
+  unread (`Store.ReleaseReview`), so a reviewer that can't run never hides
+  a finding.
 - `files` (Qt-free core) is what the work **recovered**: the record of every
   file pulled out of the traffic and written under the engagement — the
   original source a map carries, a bundle taken apart, an asset kept for a

@@ -237,7 +237,7 @@ func New(opts Options) (*App, error) {
 	// agent session score each new finding. Subscribing here, before anything
 	// is recorded, means none is missed; it stays idle until Start names the
 	// reviewing profile (see configure), so nothing runs before the runtime.
-	a.reviewer = newFindingsReviewer(a.agents, log)
+	a.reviewer = newFindingsReviewer(a.agents, a.findings, log)
 	a.findings.Subscribe(a.reviewer.onFinding)
 	a.agents.Subscribe(a.reviewer.onAgent)
 

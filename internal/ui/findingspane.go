@@ -404,7 +404,7 @@ func (p *findingsPane) buildRow(f findings.Finding, catalog func(string) (string
 	row.SetAttribute(qt.WA_StyledBackground)
 	// A string, because that is what a stylesheet selector matches on
 	// (see #FindingRow[unviewed="true"] in theme.qss).
-	row.SetProperty("unviewed", qt.NewQVariant11(fmt.Sprint(!f.Viewed)))
+	row.SetProperty("unviewed", qt.NewQVariant11(fmt.Sprint(f.Unread())))
 
 	h := qt.NewQHBoxLayout(row)
 	h.SetContentsMargins(rowPadX, 6, rowPadX-4, 6)
@@ -432,6 +432,11 @@ func (p *findingsPane) buildRow(f findings.Finding, catalog func(string) (string
 		if note != "" {
 			sub = note + " · " + sub
 		}
+	}
+	if f.AwaitingReview {
+		// Not announced yet: the reviewer agent takes a first look, and
+		// only what it finds notable arrives unread.
+		sub = "Awaiting agent review · " + sub
 	}
 	detail := qt.NewQLabel3(sub)
 	setName(detail.QObject, "Muted")
