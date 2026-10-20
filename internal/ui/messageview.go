@@ -51,6 +51,12 @@ type messageView struct {
 
 	editable bool
 
+	// term is what the message search is looking for ("" when it is
+	// closed), and searchChanged, set by the search, asks it to search
+	// again: called whenever what is shown changes while a term is set.
+	term          string
+	searchChanged func()
+
 	// onFinding, when set by the view's owner (the Traffic detail pane or a
 	// Replay window), puts Create Finding in the right-click menu of every
 	// part of the message. The view says which part the text came from and,
@@ -129,6 +135,7 @@ func newMessageView(showToolbar bool) *messageView {
 	setName(m.startLine.QObject, "StartLine")
 	m.startLine.SetFont(monospaceFont())
 	installFieldMenu(m.startLine, func(value string) { m.raise(value, partHeader, "start line") })
+	m.startLine.OnTextChanged(func(string) { m.contentChanged() })
 	topLayout.AddWidget(m.startLine.QWidget)
 
 	headersHost := qt.NewQWidget2()
@@ -164,6 +171,7 @@ func newMessageView(showToolbar bool) *messageView {
 		assist:           true,
 	})
 	m.body.onFinding = func(value string, _ int) { m.raise(value, partBody, "") }
+	m.body.edit.OnTextChanged(m.contentChanged)
 
 	split := qt.NewQSplitter3(qt.Vertical)
 	split.SetChildrenCollapsible(false)
@@ -293,6 +301,7 @@ func (m *messageView) setMessage(raw []byte, editable bool) {
 	// Raw is the message as it stood on the wire, whatever Pretty had to undo
 	// to make it readable.
 	m.rawView.SetPlainText(intercept.EditableText(raw))
+	m.contentChanged()
 	if m.keepMode {
 		m.showMode(m.mode())
 	} else {
@@ -347,6 +356,33 @@ func (m *messageView) renderHTML() {
 	default:
 		m.htmlView.SetHtml(body)
 	}
+	m.htmlView.SetExtraSelections(findAll(m.htmlView.Document(), m.term, pageMatchFormat()))
+}
+
+// search highlights every occurrence of term in the message, in all three
+// views, or clears the highlights when term is empty. It returns how many
+// there are in the start line, the headers and the body as Pretty shows
+// them (Raw and HTML hold the same text, laid out differently).
+func (m *messageView) search(term string) int {
+	if term == "" && m.term == "" {
+		return 0 // nothing highlighted to clear
+	}
+	m.term = term
+	n := markField(m.startLine, term)
+	for _, r := range m.rows {
+		n += markField(r.key, term) + markField(r.value, term)
+	}
+	n += m.body.setSearch(term)
+	m.rawView.SetExtraSelections(findAll(m.rawView.Document(), term, matchFormat()))
+	m.htmlView.SetExtraSelections(findAll(m.htmlView.Document(), term, pageMatchFormat()))
+	return n
+}
+
+// contentChanged asks the search, if one is open, to search again.
+func (m *messageView) contentChanged() {
+	if m.term != "" && m.searchChanged != nil {
+		m.searchChanged()
+	}
 }
 
 // setPlaceholder shows a one-line message instead of a parsed message, for
@@ -361,6 +397,7 @@ func (m *messageView) setPlaceholder(text string) {
 	m.body.setText(text)
 	m.body.setLanguage(LangPlain)
 	m.rawView.SetPlainText(text)
+	m.contentChanged()
 	if m.mode() == viewHTML {
 		m.renderHTML()
 	}
@@ -437,8 +474,8 @@ func (m *messageView) addRow(key, value string) *headerRow {
 	r.remove.w.SetVisible(m.editable)
 
 	// Editing Content-Type reformats the body to the matching language.
-	r.key.OnTextChanged(func(string) { m.onHeaderChanged(r) })
-	r.value.OnTextChanged(func(string) { m.onHeaderChanged(r) })
+	r.key.OnTextChanged(func(string) { m.onHeaderChanged(r); m.contentChanged() })
+	r.value.OnTextChanged(func(string) { m.onHeaderChanged(r); m.contentChanged() })
 
 	// A finding raised from a header names that header, so the detail pane
 	// can say "response header (Set-Cookie)" rather than just "header".

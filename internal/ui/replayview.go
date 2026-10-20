@@ -38,6 +38,7 @@ type replayView struct {
 	send       *qt.QPushButton
 	method     *qt.QComboBox
 	historyBtn *qt.QToolButton
+	search     *messageSearch
 	status     *qt.QLabel
 	bottom     *qt.QWidget
 	history    *replayHistory
@@ -150,8 +151,8 @@ func (r *replayView) buildBody(sess replay.Session) {
 	outer.SetContentsMargins(0, 0, 0, 0)
 	outer.SetSpacing(windowMargin)
 
-	// Header: the method and target on the left, then the history toggle
-	// and Send.
+	// Header: the method and target on the left, then the search, the
+	// history toggle and Send.
 	header := qt.NewQWidget2()
 	hb := qt.NewQHBoxLayout(header)
 	hb.SetContentsMargins(0, 0, 0, 0)
@@ -183,6 +184,8 @@ func (r *replayView) buildBody(sess replay.Session) {
 
 	hb.AddWidget(r.method.QWidget)
 	hb.AddWidget2(target.QWidget, 1)
+	r.search = newMessageSearch()
+	hb.AddWidget(r.search.root)
 	hb.AddWidget(r.historyBtn.QWidget)
 	hb.AddWidget(r.send.QWidget)
 	outer.AddWidget(header)
@@ -206,6 +209,7 @@ func (r *replayView) buildBody(sess replay.Session) {
 	r.response.onFinding = r.raiseFrom(true)
 	r.request.splitEvenly()
 	r.response.splitEvenly()
+	r.search.watch(r.request, r.response)
 
 	split := qt.NewQSplitter3(qt.Horizontal)
 	split.SetChildrenCollapsible(false)

@@ -32,6 +32,8 @@ type detailPane struct {
 	// pages is the shared Pretty/Raw/HTML selector in the tab row, driving whichever
 	// message (Request or Response) is in view.
 	pages *qt.QComboBox
+	// search finds text in the shown request and response.
+	search *messageSearch
 
 	// messagePair carries request/response and the Edit-menu and theme
 	// routing over both of them.
@@ -113,6 +115,7 @@ func newDetailPane() *detailPane {
 	// splitter to give the body more room.
 	d.request.splitHeaderMajority()
 	d.response.splitHeaderMajority()
+	d.search.watch(d.request, d.response)
 	d.tabs = qt.NewQTabWidget2()
 	d.tabs.SetDocumentMode(true)
 	d.tabs.AddTab(d.request.root, "Request")
@@ -184,7 +187,10 @@ func (d *detailPane) buildHeader() *qt.QWidget {
 
 	h.AddWidget2(d.summary.QWidget, 1)
 	h.AddWidget(d.target.QWidget)
+	d.search = newMessageSearch()
+
 	h.AddWidget(d.badge.QWidget)
+	h.AddWidget(d.search.root)
 	h.AddWidget(d.replay.QWidget)
 	h.AddWidget(d.drop.QWidget)
 	h.AddWidget(d.forward.QWidget)

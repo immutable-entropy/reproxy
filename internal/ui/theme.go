@@ -68,6 +68,7 @@ const (
 	colorGutterBg     = "gutterBg"
 	colorGutterText   = "gutterText"
 	colorCurrentLine  = "currentLine"
+	colorSearchMatch  = "searchMatch"
 	colorMethodGet    = "methodGet"
 	colorMethodPost   = "methodPost"
 	colorMethodPut    = "methodPut"
@@ -149,6 +150,7 @@ var lightPalette = palette{
 	"gutterBg":          "#f6f7f9",
 	"gutterText":        "#b0b6bd",
 	"currentLine":       "#f3f6fb",
+	"searchMatch":       "#ffe58a",
 	"scrollHandle":      "#d5d9df",
 	"scrollHover":       "#b8bec7",
 	"tooltipBg":         "#1f2328",
@@ -224,6 +226,7 @@ var darkPalette = palette{
 	"gutterBg":          "#22272e",
 	"gutterText":        "#596170",
 	"currentLine":       "#262c34",
+	"searchMatch":       "#6b5410",
 	"scrollHandle":      "#3a414c",
 	"scrollHover":       "#4a525f",
 	"tooltipBg":         "#0b0e13",
@@ -302,6 +305,7 @@ var matrixPalette = palette{
 	"gutterBg":          "#050a06",
 	"gutterText":        "#166b2d",
 	"currentLine":       "#0b1f0f",
+	"searchMatch":       "#5c5200",
 	"scrollHandle":      "#1a6b30",
 	"scrollHover":       "#27c552",
 	"tooltipBg":         "#001206",
