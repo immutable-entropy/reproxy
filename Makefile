@@ -9,7 +9,7 @@ CORE_PKGS := ./internal/browser/... ./internal/bodyview/... ./internal/capture/.
 # out; mac has to run on macOS, and win needs makensis plus a mingw Qt.
 TYPE ?= deb
 
-.PHONY: build run test test-core test-ui print-core-pkgs vet fmt clean package icons deps-check vulncheck hooks
+.PHONY: build build-headless run test test-core test-ui print-core-pkgs vet fmt clean package icons deps-check vulncheck hooks
 
 # -trimpath keeps the build machine's paths (home directory, module cache)
 # out of the binary, and makes a release reproducible from its source.
@@ -17,6 +17,13 @@ TYPE ?= deb
 # the Qt bindings: change them together.
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/reproxy
+
+# A Qt-free command-line build: the author tools (reproxy plugins …), the
+# command line and the -headless server, with internal/ui left out by the
+# `headless` tag. It needs no Qt toolchain, so CI that only runs the plugin
+# tests — the reproxy-plugins repository's — builds this instead of the app.
+build-headless:
+	go build -trimpath -tags headless -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/reproxy
 
 run: build
 	./$(BIN) $(ARGS)
