@@ -93,6 +93,8 @@ build toward them unless asked. Do keep every change consistent with them.
 - **Commit each change as it is made**, to the current branch, one commit
   per change (set by the project owner), rather than leaving work
   uncommitted for later.
+- **Never push.** Pushing (to any remote, any branch, tags included) is
+  only ever done by the project owner; don't push, and don't offer to.
 - **Commit messages describe the change and nothing else** (set by the
   project owner): no mention of AI, assistants, models or the agent that
   made the change, and no `Co-Authored-By` or "Generated with" lines.
