@@ -1,0 +1,34 @@
+#!/bin/sh
+# The dependency soak check (tools/depsoak, `make deps-check`), whenever a
+# commit changes go.mod, go.sum or deps-soak.allow: a module version or Go
+# toolchain first published less than 14 days ago is refused unless
+# deps-soak.allow excuses it. It checks the staged files, which are what is
+# being committed, not the working copy. It needs the network.
+#
+# Enabled by `make hooks` (git config core.hooksPath .githooks). To commit
+# past it anyway, `git commit --no-verify`; CI runs the same check.
+set -eu
+
+changed=$(git diff --cached --name-only --diff-filter=ACMRD -- go.mod go.sum deps-soak.allow)
+[ -z "$changed" ] && exit 0
+
+echo "pre-commit: $(echo $changed | tr '\n' ' ')changed; checking dependency ages (make deps-check)"
+
+root=$(git rev-parse --show-toplevel)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# depsoak reads go.mod and deps-soak.allow from the directory it runs in.
+git show :go.mod >"$work/go.mod"
+if git cat-file -e :deps-soak.allow 2>/dev/null; then
+	git show :deps-soak.allow >"$work/deps-soak.allow"
+else
+	: >"$work/deps-soak.allow"
+fi
+(cd "$root" && go build -o "$work/depsoak" ./tools/depsoak)
+
+if ! (cd "$work" && ./depsoak); then
+	echo >&2
+	echo "pre-commit: refused by the dependency soak check (see above)." >&2
+	exit 1
+fi
