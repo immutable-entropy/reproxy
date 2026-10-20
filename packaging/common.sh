@@ -14,7 +14,7 @@ APP_NAME="reProxy"          # human-readable name
 APP_SUMMARY="Intercepting proxy for inspecting, editing and replaying HTTP traffic"
 APP_VENDOR="reProxy"
 APP_HOMEPAGE="https://github.com/immutable-entropy/reproxy"
-APP_MAINTAINER="Kayleigh <0x95private@pm.me>}"
+APP_MAINTAINER="${REPROXY_MAINTAINER:-Kayleigh <0x95private@pm.me>}"
 
 # PLACEHOLDER: the repository declares no licence -- there is no LICENSE file
 # and neither README.md nor go.mod names one. Both packagers stamp this value
