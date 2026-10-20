@@ -26,6 +26,8 @@ name: Tests and checks
 on:
   push:
     branches: ['**']
+  # The release workflow runs the same tests and checks before it builds.
+  workflow_call:
 
 permissions:
   contents: read
