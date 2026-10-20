@@ -67,7 +67,7 @@ VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
 !define MUI_ICON "${ICON_FILE}"
 !define MUI_UNICON "${ICON_FILE}"
 !define MUI_ABORTWARNING
-!define MUI_FINISHPAGE_TEXT "${APP_NAME} is installed.$\r$\n$\r$\nPoint your browser's SOCKS5 proxy at 127.0.0.1 and the port shown in the window. To read HTTPS, install the CA certificate from Settings.$\r$\n$\r$\nTo keep the MCP server running with no window open, run reproxy-mcp-service.cmd install from the installation folder."
+!define MUI_FINISHPAGE_TEXT "${APP_NAME} is installed.$\r$\n$\r$\nPoint your browser's proxy (SOCKS5, SOCKS4/4a, HTTP or HTTPS) at 127.0.0.1 and the port shown in the window. To read HTTPS, install the CA certificate from Settings.$\r$\n$\r$\nTo keep the MCP server running with no window open, run reproxy-mcp-service.cmd install from the installation folder."
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_COMPONENTS

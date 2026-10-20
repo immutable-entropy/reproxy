@@ -1929,9 +1929,9 @@ func (w *mainWindow) refreshStatus() {
 		w.listHint.SetText("The proxy couldn't start. Choose another address in Settings → Traffic Proxy.")
 		w.detail.setHint("The proxy couldn't start.")
 	} else {
-		w.status.SetText(footerStatus(statusRunning, "SOCKS5 proxy listening on "+addr))
+		w.status.SetText(footerStatus(statusRunning, "Proxy listening on "+addr+" (SOCKS5, SOCKS4/4a, HTTP, HTTPS)"))
 		w.listHint.SetText(fmt.Sprintf(
-			"Point your browser's SOCKS5 proxy at %s and browse your app.\nRequests will appear here.", addr))
+			"Point your browser's proxy (SOCKS5, SOCKS4/4a, HTTP or HTTPS) at %s and browse your app.\nRequests will appear here.", addr))
 		w.detail.setHint("Click a request on the left to see it here.")
 	}
 	w.refreshCounts()

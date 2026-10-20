@@ -1,7 +1,7 @@
 # reProxy
 
 A lightweight QA tool for our pre-production web apps. `reproxy` starts a local
-SOCKS5 proxy and opens a desktop window that lists every HTTP request your
+proxy (SOCKS5, SOCKS4/4a, HTTP and HTTPS, all on one port) and opens a desktop window that lists every HTTP request your
 browser makes through it, with the raw request and response for each.
 
 Scope is deliberate: HTTP/1.x, in the clear or over TLS (see [HTTPS](#https)).
@@ -284,8 +284,26 @@ Snap-packaged browsers (Ubuntu's default Chromium and Firefox) can't use
 
 ## Pointing your own browser at it
 
-To use an existing browser instead, configure it by hand. Browsers skip
-proxies for `localhost` by default, which is exactly what we
+To use an existing browser instead, configure it by hand. The proxy's one
+port (7193 by default) speaks every protocol a browser or tool might use, and
+tells them apart from the first byte each connection sends:
+
+| Protocol | Use it as | Notes |
+|---|---|---|
+| SOCKS5 | `socks5://127.0.0.1:7193` | Preferred: names are resolved by reProxy, so DNS is recorded too. |
+| SOCKS4a | `socks4a://127.0.0.1:7193` | Also passes names to reProxy. |
+| SOCKS4 | `socks4://127.0.0.1:7193` | Carries only an IPv4 address, so the client resolves names itself. |
+| HTTP | `http://127.0.0.1:7193` | `CONNECT` for https URLs (decrypted like a SOCKS tunnel), and plain `GET http://…` requests for http URLs. |
+| HTTPS | `https://127.0.0.1:7193` | The same as HTTP, over TLS to the proxy. Its certificate is signed by reProxy's CA, which the client must trust. |
+
+Requests sent to the HTTP proxy name their URL in full; reProxy sends each
+to its server in the usual form, with `Host` set from the URL and the
+`Proxy-Connection` and `Proxy-Authorization` headers taken out, and records
+it as sent. One connection can carry requests for several sites: each is
+answered in order. An `https://` URL in such a request (some tools send one
+instead of a `CONNECT`) is sent over TLS.
+
+Browsers skip proxies for `localhost` by default, which is exactly what we
 test against, so both settings below matter.
 
 **Firefox** (recommended; it keeps its proxy settings per profile):
@@ -311,7 +329,8 @@ the host, so you can run `make run` in the container terminal and:
 
 - the window opens on your host desktop through VS Code's X11 forwarding
   (Linux hosts; `DISPLAY` is set for you);
-- a **host** browser can use `127.0.0.1:7193` as its SOCKS5 proxy.
+- a **host** browser can use `127.0.0.1:7193` as its proxy (SOCKS5, SOCKS4/4a,
+  HTTP or HTTPS).
 
 - **Tools → Open Browser** opens Chrome inside the container, also on your
   desktop, already using the proxy. (The container has no GPU, so the launcher
@@ -667,7 +686,7 @@ internal/replay/    sends a raw request to a server for the Replay tool
 internal/findings/  what the work turned up: the findings and the types that classify them
 internal/files/     what the work recovered: the record of each file, its bytes under the engagement
 internal/tlsca/     the CA and per-host leaf certificates for HTTPS interception
-internal/proxy/     SOCKS5 server and the HTTP-aware relay that records, decrypts and holds traffic
+internal/proxy/     the proxy (SOCKS5, SOCKS4/4a, HTTP, HTTPS) and the HTTP-aware relay that records, decrypts and holds traffic
 internal/ui/        Qt (miqt) UI, the only package that uses cgo/Qt
   messageview.go    structured request/response editor (headers + body)
   codeeditor.go     IDE-style body editor (gutter, current line)
@@ -698,7 +717,8 @@ search, export, replay) should follow that split.
 
 ### How the proxy handles traffic
 
-Each SOCKS `CONNECT` runs two loops, one per direction. Each loop reads one
+Each tunnel (a SOCKS or HTTP `CONNECT`, or an HTTP proxy's plain requests
+to one site) runs two loops, one per direction. Each loop reads one
 message's start line and headers, asks the interceptor whether to hold it,
 then either:
 

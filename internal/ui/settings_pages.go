@@ -46,7 +46,7 @@ func newProxyPage(ctrl Controller) *settingsPage {
 	update := func() {
 		h := strings.TrimSpace(host.CurrentText())
 		addr := net.JoinHostPort(h, fmt.Sprint(port.Value()))
-		hint.SetText(fmt.Sprintf("Point your browser's SOCKS5 proxy at %s. "+
+		hint.SetText(fmt.Sprintf("Point your browser's proxy at %s: SOCKS5, SOCKS4/4a, HTTP and HTTPS all work on this port. "+
 			"127.0.0.1 keeps the proxy private to this machine; 0.0.0.0 listens on every interface.", addr))
 		ip := net.ParseIP(h)
 		warning.SetVisible(ip != nil && !ip.IsLoopback())
@@ -78,7 +78,7 @@ func newProxyPage(ctrl Controller) *settingsPage {
 
 	return &settingsPage{
 		title:       settingsProxy,
-		description: "Where the SOCKS5 proxy listens, and the CA it uses to decrypt HTTPS.",
+		description: "Where the proxy listens, and the CA it uses to decrypt HTTPS.",
 		body:        body,
 		load: func(c config.Config) {
 			host.SetCurrentText(c.ProxyHost)

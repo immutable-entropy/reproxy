@@ -6,12 +6,13 @@ reproxy \- intercepting proxy for inspecting, editing and replaying HTTP traffic
 [\fIflags\fR]
 .SH DESCRIPTION
 .B reProxy
-runs a local SOCKS5 proxy that records the HTTP traffic passing through it,
+runs a local proxy that records the HTTP traffic passing through it,
 and a desktop window for inspecting that traffic, holding requests and
 responses for editing, and replaying them.
 .PP
-Point a browser's SOCKS5 proxy at 127.0.0.1 on the configured port
-(7193 by default). To read HTTPS, install reProxy's CA certificate into the
+Point a browser's proxy at 127.0.0.1 on the configured port
+(7193 by default). SOCKS5, SOCKS4, SOCKS4a, HTTP and HTTPS proxying are all
+served on that one port. To read HTTPS, install reProxy's CA certificate into the
 browser from Settings.
 .SH FLAGS
 .TP

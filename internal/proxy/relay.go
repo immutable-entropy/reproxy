@@ -46,7 +46,8 @@ type exchange struct {
 	id chan uint64
 }
 
-// tunnel is one SOCKS CONNECT carrying HTTP/1.x.
+// tunnel is one connection through the proxy (a SOCKS or HTTP CONNECT, or
+// an HTTP proxy's plain requests to one origin) carrying HTTP/1.x.
 //
 // Two loops run per tunnel: requests (browser→target) and responses
 // (target→browser). Each reads one message's head, decides whether to hold
@@ -67,6 +68,10 @@ type tunnel struct {
 	origin string
 
 	secure bool // true once the tunnel has been decrypted from TLS
+
+	// forward is set on a tunnel carrying an HTTP proxy's plain requests,
+	// which name their origin in every request line.
+	forward *forwardState
 
 	// ws is set by the response loop when it sees a 101 WebSocket upgrade,
 	// so both directions know to frame the rest as WebSocket messages.
@@ -89,26 +94,10 @@ type wsState struct {
 	accepted websocket.Accepted
 }
 
-// relay runs a tunnel until both directions are finished.
-func (s *Server) relay(ctx context.Context, client, upstream net.Conn, target string, source capture.Source, origin string) {
-	t := &tunnel{
-		source:   source,
-		origin:   origin,
-		s:        s,
-		ctx:      ctx,
-		client:   client,
-		upstream: upstream,
-		cbr:      bufio.NewReaderSize(client, parseBufSize),
-		ubr:      bufio.NewReaderSize(upstream, parseBufSize),
-		target:   target,
-		pending:  make(chan *exchange, 16),
-		upgraded: make(chan bool, 1),
-		respDone: make(chan struct{}),
-	}
-	if ap, err := netip.ParseAddrPort(upstream.RemoteAddr().String()); err == nil {
-		t.ip = ap.Addr()
-	}
-
+// relay runs a tunnel until both directions are finished. cbr reads from
+// client, holding whatever the client sent after its proxy handshake.
+func (s *Server) relay(ctx context.Context, client net.Conn, cbr *bufio.Reader, upstream net.Conn, target string, source capture.Source, origin string) {
+	t := s.newTunnel(ctx, client, cbr, upstream, target, source, origin)
 	switch {
 	case isClientHello(t.cbr):
 		if s.ca == nil {
@@ -124,7 +113,41 @@ func (s *Server) relay(ctx context.Context, client, upstream net.Conn, target st
 		t.raw()
 		return
 	}
+	t.loops()
+}
 
+// relayForward runs a tunnel for an HTTP proxy's plain requests to one
+// origin (see forwardState), until the client closes or asks for another
+// origin. upstream is already TLS when the origin is https.
+func (s *Server) relayForward(client net.Conn, cbr *bufio.Reader, upstream net.Conn, target string, secure bool, f *forwardState, source capture.Source, origin string) {
+	t := s.newTunnel(s.ctx, client, cbr, upstream, target, source, origin)
+	t.secure, t.forward = secure, f
+	t.loops()
+}
+
+func (s *Server) newTunnel(ctx context.Context, client net.Conn, cbr *bufio.Reader, upstream net.Conn, target string, source capture.Source, origin string) *tunnel {
+	t := &tunnel{
+		source:   source,
+		origin:   origin,
+		s:        s,
+		ctx:      ctx,
+		client:   client,
+		upstream: upstream,
+		cbr:      cbr,
+		ubr:      bufio.NewReaderSize(upstream, parseBufSize),
+		target:   target,
+		pending:  make(chan *exchange, 16),
+		upgraded: make(chan bool, 1),
+		respDone: make(chan struct{}),
+	}
+	if ap, err := netip.ParseAddrPort(upstream.RemoteAddr().String()); err == nil {
+		t.ip = ap.Addr()
+	}
+	return t
+}
+
+// loops runs the request and response loops until both are finished.
+func (t *tunnel) loops() {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); t.requests() }()
@@ -276,13 +299,28 @@ func (t *tunnel) rawResponses() {
 func (t *tunnel) requests() {
 	defer close(t.pending)
 	for {
-		head, err := readHead(t.cbr)
+		var head []byte
+		var err error
+		if f := t.forward; f != nil && f.first != nil {
+			head, f.first = f.first, nil
+		} else {
+			head, err = readHead(t.cbr)
+		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				t.s.log.Debug("reading request", "err", err)
 			}
 			closeWrite(t.upstream)
 			return
+		}
+		if f := t.forward; f != nil {
+			var same bool
+			if head, same = f.rewrite(head); !same {
+				// For another origin: stop here, so the responses still
+				// due are relayed before the client is reconnected.
+				f.next = head
+				return
+			}
 		}
 		req, fr, err := parseRequestHead(head)
 		if err != nil {
@@ -502,6 +540,12 @@ func (t *tunnel) responses() {
 		if n == nextRaw {
 			t.wsPipe(t.ubr, t.client, websocket.ServerToClient)
 		}
+		return
+	}
+	if f := t.forward; f != nil && f.next != nil {
+		// Every request is answered and the browser's next is for another
+		// origin: the client connection carries on with a new tunnel.
+		f.resume = true
 		return
 	}
 	// The browser finished sending and every request is answered.

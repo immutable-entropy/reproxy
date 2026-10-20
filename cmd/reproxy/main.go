@@ -1,4 +1,5 @@
-// Command reproxy launches reProxy: a local SOCKS5 proxy that records HTTP
+// Command reproxy launches reProxy: a local proxy (SOCKS5, SOCKS4/4a, HTTP
+// and HTTPS on one port) that records HTTP
 // traffic from your browser, and a desktop UI for inspecting it.
 //
 //	reproxy [flags]
@@ -64,8 +65,9 @@ func run(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage: reproxy [flags]\n\n"+
-			"Starts the SOCKS5 proxy and opens the reProxy window.\n"+
-			"Point your browser's SOCKS5 proxy at 127.0.0.1:<port>.\n\n"+
+			"Starts the proxy and opens the reProxy window.\n"+
+			"Point your browser's proxy at 127.0.0.1:<port>: SOCKS5, SOCKS4/4a,\n"+
+			"HTTP and HTTPS are all served on that port.\n\n"+
 			"With -headless there is no window: the proxy, the hub and the MCP\n"+
 			"server run until the process is signalled. This is what the\n"+
 			"reproxy-mcp service runs.\n\n"+
