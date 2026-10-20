@@ -1,4 +1,7 @@
-// Package proxy implements the SOCKS5 proxy that browsers connect through.
+// Package proxy implements the proxy that browsers connect through. One port
+// speaks SOCKS5, SOCKS4, SOCKS4a, HTTP (CONNECT, and plain requests with an
+// absolute URL) and HTTPS (the same over TLS to the proxy), told apart by
+// the first byte the client sends.
 //
 // Every CONNECT is tunnelled to its target. Plain HTTP/1.x is recorded into
 // a capture.Store, and the intercept.Interceptor may hold messages for the
@@ -9,9 +12,11 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -86,7 +91,7 @@ type WSMessageInfo struct {
 	Data   []byte
 }
 
-// Server is a SOCKS5 proxy. The zero value is not usable; call New.
+// Server is the proxy. The zero value is not usable; call New.
 type Server struct {
 	store        *capture.Store
 	intercept    *intercept.Interceptor
@@ -221,12 +226,13 @@ func (s *Server) dialHosts(hosts []string, port string) (net.Conn, error) {
 
 // OriginFunc recognises a connection opened by reproxy itself — a plugin
 // sending traffic through the proxy so that it is recorded — from the
-// SOCKS5 username and password it authenticated with. ok is false for
-// anyone else, whose traffic is the browser's.
+// username and password it authenticated with (SOCKS5's, or an HTTP
+// request's Proxy-Authorization). ok is false for anyone else, whose traffic
+// is the browser's.
 type OriginFunc func(user, pass string) (source capture.Source, origin string, ok bool)
 
-// WithOrigin sets the origin resolver. Without one, only "no authentication"
-// is offered, and every flow is the proxy's.
+// WithOrigin sets the origin resolver. Without one, SOCKS5 offers only "no
+// authentication", credentials are ignored, and every flow is the proxy's.
 func WithOrigin(fn OriginFunc) Option {
 	return func(s *Server) { s.origin = fn }
 }
@@ -387,54 +393,124 @@ func (s *Server) untrack(c net.Conn) {
 	s.mu.Unlock()
 }
 
+// handle serves one client connection. The protocol is told from its first
+// byte, so one port serves all of them: 0x05 is SOCKS5, 0x04 is SOCKS4 or
+// SOCKS4a, a letter is the start of an HTTP proxy request (CONNECT for a
+// tunnel, or a plain request with an absolute URL), and a TLS handshake is
+// an HTTPS proxy: HTTP proxy requests over TLS to the proxy itself.
 func (s *Server) handle(client net.Conn) {
 	log := s.log.With("client", client.RemoteAddr().String())
 
 	_ = client.SetDeadline(time.Now().Add(handshakeTimeout))
-	user, pass, err := negotiate(client, s.origin != nil)
+	br := bufio.NewReaderSize(client, parseBufSize)
+	first, err := br.Peek(1)
+	if err != nil {
+		return
+	}
+	switch {
+	case first[0] == socksVersion:
+		s.handleSocks5(log, client, br)
+	case first[0] == socks4Version:
+		s.handleSocks4(log, client, br)
+	case looksLikeHTTP(br):
+		s.handleHTTP(log, client, br)
+	case isClientHello(br):
+		s.handleHTTPS(log, client, br)
+	default:
+		log.Debug("unrecognised proxy protocol", "first", first[0])
+	}
+}
+
+func (s *Server) handleSocks5(log *slog.Logger, client net.Conn, br *bufio.Reader) {
+	rw := struct {
+		io.Reader
+		io.Writer
+	}{br, client}
+	user, pass, err := negotiate(rw, s.origin != nil)
 	if err != nil {
 		log.Debug("socks negotiation failed", "err", err)
 		return
 	}
-	var source capture.Source
-	var origin string
-	if user != "" || pass != "" {
-		var ok bool
-		if source, origin, ok = s.origin(user, pass); !ok {
-			source, origin = capture.SourceProxy, ""
-		}
-	}
-	target, err := readRequest(client)
+	source, origin := s.originOf(user, pass)
+	target, err := readRequest(rw)
 	if err != nil {
 		log.Debug("socks request failed", "err", err)
 		return
 	}
-	log = log.With("target", target)
+	s.connect(log, client, br, target, source, origin, func(err error) error {
+		if err != nil {
+			return writeReply(client, replyForDialError(err))
+		}
+		return writeReply(client, repSucceeded)
+	})
+}
 
-	hosts, port, err := s.resolveTarget(client, target, source, origin)
+// handleSocks4 serves SOCKS4 and SOCKS4a. Its USERID is handed to the
+// origin resolver as a username with no password, which no plugin label
+// matches, so these connections are always the browser's.
+func (s *Server) handleSocks4(log *slog.Logger, client net.Conn, br *bufio.Reader) {
+	target, user, err := readSocks4Request(br, client)
 	if err != nil {
-		log.Debug("resolve failed", "err", err)
-		_ = writeReply(client, replyForDialError(err))
+		log.Debug("socks4 request failed", "err", err)
 		return
 	}
-	upstream, err := s.dialHosts(hosts, port)
-	if err != nil {
-		log.Debug("dial failed", "err", err)
-		_ = writeReply(client, replyForDialError(err))
-		return
+	source, origin := s.originOf(user, "")
+	s.connect(log, client, br, target, source, origin, func(err error) error {
+		if err != nil {
+			return writeSocks4Reply(client, socks4Rejected)
+		}
+		return writeSocks4Reply(client, socks4Granted)
+	})
+}
+
+// originOf labels a connection from the credentials it presented: a
+// plugin's, when the origin resolver recognises them, or the proxy's.
+func (s *Server) originOf(user, pass string) (capture.Source, string) {
+	if s.origin == nil || user == "" && pass == "" {
+		return "", ""
 	}
-	if !s.track(upstream) {
-		_ = upstream.Close()
+	if source, origin, ok := s.origin(user, pass); ok {
+		return source, origin
+	}
+	return capture.SourceProxy, ""
+}
+
+// connect resolves and dials target, tells the client how that went through
+// reply (nil for success), and relays the connection until it ends.
+func (s *Server) connect(log *slog.Logger, client net.Conn, br *bufio.Reader, target string, source capture.Source, origin string, reply func(error) error) {
+	log = log.With("target", target)
+	upstream, err := s.open(client, target, source, origin)
+	if err != nil {
+		log.Debug("connect failed", "err", err)
+		_ = reply(err)
 		return
 	}
 	defer s.untrack(upstream)
 
-	if err := writeReply(client, repSucceeded); err != nil {
+	if err := reply(nil); err != nil {
 		return
 	}
 	_ = client.SetDeadline(time.Time{})
 
 	log.Debug("tunnel open")
-	s.relay(s.ctx, client, upstream, target, source, origin)
+	s.relay(s.ctx, client, br, upstream, target, source, origin)
 	log.Debug("tunnel closed")
+}
+
+// open resolves and dials target on the client's behalf. The connection it
+// returns is tracked; the caller untracks (and so closes) it.
+func (s *Server) open(client net.Conn, target string, source capture.Source, origin string) (net.Conn, error) {
+	hosts, port, err := s.resolveTarget(client, target, source, origin)
+	if err != nil {
+		return nil, err
+	}
+	upstream, err := s.dialHosts(hosts, port)
+	if err != nil {
+		return nil, err
+	}
+	if !s.track(upstream) {
+		_ = upstream.Close()
+		return nil, ErrServerClosed
+	}
+	return upstream, nil
 }

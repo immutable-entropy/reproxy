@@ -143,7 +143,11 @@ build toward them unless asked. Do keep every change consistent with them.
   handle, and a fallback would be unreachable code that weakened the ID
   if it ever ran;
   `app` → everything but `ui`; `proxy` → `capture`/`intercept`/`websocket`; `dns` → `capture`/`intercept`;
-  `config` → `intercept`/`upstream`; what interception holds is now
+  `config` → `intercept`/`upstream`; the proxy's one port serves SOCKS5,
+  SOCKS4/4a, HTTP and HTTPS, told apart by each connection's first byte
+  (`proxy.Server.handle`); every protocol ends in the same relay, and an
+  HTTP proxy's plain absolute-URL requests are rewritten to origin form and
+  carried one origin at a time (`proxy.forwardState`); what interception holds is now
   configured per target (`target.Intercept`, surfaced through `target.Match`
   and the app's `intercept.UserHoldFunc`), so `intercept` keeps no match
   rules of its own — the master on/off toggle and the per-message edit stage
