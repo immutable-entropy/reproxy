@@ -498,7 +498,11 @@ build toward them unless asked. Do keep every change consistent with them.
   host extends a running crawl. The limits are strict: request starts are
   spaced at least 1/rate apart with no burst (across workers, stops and
   starts), and at most `Threads` (≤ `crawl.MaxThreads()`, one per CPU)
-  are in flight. It crawls what it is led to, not what might be there:
+  are in flight. Every request carries `Settings.UserAgent` (reProxy's
+  own, `crawl.DefaultUserAgent`, when empty; the window and `--user-agent`
+  offer `crawl.UserAgents` or the user's own text, refused if it holds a
+  control character, since it goes into a header line as it stands).
+  It crawls what it is led to, not what might be there:
   the URLs the Explorer knows, every origin's `crawl.SitemapPaths`
   (robots.txt, sitemap.xml), and whatever those turn up, recursively.
   Guessing at `crawl.APIDocPaths` (the usual OpenAPI/Swagger locations)

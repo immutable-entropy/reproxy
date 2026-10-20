@@ -545,6 +545,7 @@ func (a *App) crawlCommands() []cli.Command {
 				{Name: "threads", Type: cli.FlagNumber, Placeholder: "n", Description: "requests in flight at once"},
 				{Name: "new-only", Type: cli.FlagString, Placeholder: "on|off", Description: "skip URLs earlier runs crawled"},
 				{Name: "api-docs", Type: cli.FlagString, Placeholder: "on|off", Description: "guess at the usual OpenAPI locations"},
+				userAgentFlag,
 				yesFlag("a crawl is noisy and can stress a server"),
 			},
 			Run: a.cmdCrawlStart,
@@ -564,6 +565,7 @@ func (a *App) crawlCommands() []cli.Command {
 				{Name: "threads", Type: cli.FlagNumber, Placeholder: "n", Description: "requests in flight at once"},
 				{Name: "new-only", Type: cli.FlagString, Placeholder: "on|off", Description: "only crawl URLs earlier runs didn't"},
 				{Name: "api-docs", Type: cli.FlagString, Placeholder: "on|off", Description: "guess at the usual OpenAPI locations"},
+				userAgentFlag,
 			},
 			Run: a.cmdCrawlSettings,
 		},
@@ -594,6 +596,30 @@ func (a *App) cmdCrawlStatus(_ context.Context, _ *cli.Input) (cli.Result, error
 	return cli.Data(lines(said...), st)
 }
 
+// userAgentFlag chooses the crawl's User-Agent: one of crawl.UserAgents by
+// its ID, or any other text as the header itself.
+var userAgentFlag = cli.Flag{Name: "user-agent", Type: cli.FlagString, Placeholder: "id|text",
+	Description: "the User-Agent sent: " + userAgentIDs() + ", or the header's text"}
+
+func userAgentIDs() string {
+	ids := make([]string, len(crawl.UserAgents))
+	for i, ua := range crawl.UserAgents {
+		ids[i] = ua.ID
+	}
+	return strings.Join(ids, ", ")
+}
+
+// userAgentName is how a User-Agent is listed: the ID of an offered one,
+// or the text of the user's own.
+func userAgentName(value string) string {
+	for _, ua := range crawl.UserAgents {
+		if ua.Value == value {
+			return fmt.Sprintf("%s (%s)", ua.ID, ua.Name)
+		}
+	}
+	return value
+}
+
 // crawlFlags applies the settings flags a command was given to s.
 func crawlFlags(in *cli.Input, s crawl.Settings) (crawl.Settings, error) {
 	if in.Given("rate") {
@@ -614,6 +640,12 @@ func crawlFlags(in *cli.Input, s crawl.Settings) (crawl.Settings, error) {
 			return s, fmt.Errorf("--%s: %w", f.flag, err)
 		}
 		*f.to = on
+	}
+	if in.Given("user-agent") {
+		s.UserAgent = in.String("user-agent")
+		if ua, ok := crawl.UserAgentByID(s.UserAgent); ok {
+			s.UserAgent = ua.Value
+		}
 	}
 	return s, s.Validate()
 }
@@ -645,7 +677,7 @@ func (a *App) cmdCrawlSettings(_ context.Context, in *cli.Input) (cli.Result, er
 	if err != nil {
 		return cli.Result{}, err
 	}
-	changed := in.Given("rate") || in.Given("threads") || in.Given("new-only") || in.Given("api-docs")
+	changed := in.Given("rate") || in.Given("threads") || in.Given("new-only") || in.Given("api-docs") || in.Given("user-agent")
 	if changed {
 		if err := a.crawler.SaveSettings(s); err != nil {
 			return cli.Result{}, err
@@ -656,6 +688,7 @@ func (a *App) cmdCrawlSettings(_ context.Context, in *cli.Input) (cli.Result, er
 		fmt.Sprintf("threads   %d (at most %d here)", s.Threads, crawl.MaxThreads()),
 		fmt.Sprintf("new-only  %s", onOffWord(s.OnlyNew)),
 		fmt.Sprintf("api-docs  %s", onOffWord(s.APIDocs)),
+		fmt.Sprintf("agent     %s", userAgentName(s.UserAgent)),
 		fmt.Sprintf("excluded  %s", count(len(s.ExcludedTargets), "target", "targets")),
 	), s)
 }

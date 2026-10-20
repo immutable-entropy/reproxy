@@ -22,6 +22,8 @@ const (
 	// the warning before a crawl starts.
 	metaNoWarning = "warning_dismissed"
 	metaAPIDocs   = "api_docs"
+	// metaUserAgent is Settings.UserAgent; empty is the default.
+	metaUserAgent = "user_agent"
 	// metaExcluded is the targets left out, a JSON array of IDs.
 	metaExcluded = "excluded_targets"
 	// metaDocsFound is the origins an API description was found on, a JSON
@@ -79,6 +81,7 @@ func (c *Crawler) loadLocked() error {
 	if v, err := strconv.ParseBool(meta[metaAPIDocs]); err == nil {
 		s.APIDocs = v
 	}
+	s.UserAgent = meta[metaUserAgent]
 	if _ = json.Unmarshal([]byte(meta[metaExcluded]), &s.ExcludedTargets); len(s.ExcludedTargets) == 0 {
 		s.ExcludedTargets = nil // none left out, however it was written
 	}
@@ -115,6 +118,7 @@ func (c *Crawler) saveSettingsLocked() error {
 			metaNoWarning: strconv.FormatBool(c.warningDismissed),
 			metaAPIDocs:   strconv.FormatBool(c.settings.APIDocs),
 			metaExcluded:  string(excluded),
+			metaUserAgent: c.settings.UserAgent,
 			metaDocsFound: string(docs),
 		} {
 			if _, err := tx.Exec(`INSERT INTO crawl_meta (key, value) VALUES (?, ?)

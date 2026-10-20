@@ -90,6 +90,74 @@ type Settings struct {
 	// lists those left out rather than those chosen, so a target added
 	// later is crawled unless the user says otherwise.
 	ExcludedTargets []string
+	// UserAgent is the User-Agent header every request carries. Empty is
+	// DefaultUserAgent, which says the requests are reProxy's crawl;
+	// UserAgents lists common browsers' and crawlers' to pick from.
+	UserAgent string
+}
+
+// agent is the User-Agent the settings send.
+func (s Settings) agent() string {
+	if s.UserAgent == "" {
+		return DefaultUserAgent
+	}
+	return s.UserAgent
+}
+
+// DefaultUserAgent is what the crawl calls itself unless told otherwise.
+const DefaultUserAgent = "Mozilla/5.0 (compatible; reProxy-Autocrawl/1.0)"
+
+// MaxUserAgent bounds Settings.UserAgent, in bytes.
+const MaxUserAgent = 1024
+
+// UserAgent is a User-Agent the crawl offers by name.
+type UserAgent struct {
+	// ID is the short name the command line takes (--user-agent chrome-windows).
+	ID string
+	// Name is how the window lists it.
+	Name string
+	// Value is the header. Empty is DefaultUserAgent.
+	Value string
+}
+
+// UserAgents are the User-Agents offered for a crawl: reProxy's own first,
+// then common browsers and crawlers, for a server that answers each
+// differently. Browsers' versions date; refresh them now and then.
+var UserAgents = []UserAgent{
+	{ID: "reproxy", Name: "reProxy Autocrawl", Value: ""},
+	{ID: "chrome-windows", Name: "Chrome on Windows",
+		Value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"},
+	{ID: "chrome-macos", Name: "Chrome on macOS",
+		Value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"},
+	{ID: "chrome-linux", Name: "Chrome on Linux",
+		Value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"},
+	{ID: "edge-windows", Name: "Edge on Windows",
+		Value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"},
+	{ID: "firefox-windows", Name: "Firefox on Windows",
+		Value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0"},
+	{ID: "firefox-linux", Name: "Firefox on Linux",
+		Value: "Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0"},
+	{ID: "safari-macos", Name: "Safari on macOS",
+		Value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"},
+	{ID: "safari-iphone", Name: "Safari on iPhone",
+		Value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"},
+	{ID: "chrome-android", Name: "Chrome on Android",
+		Value: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"},
+	{ID: "googlebot", Name: "Googlebot",
+		Value: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
+	{ID: "bingbot", Name: "Bingbot",
+		Value: "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"},
+	{ID: "curl", Name: "curl", Value: "curl/8.16.0"},
+}
+
+// UserAgentByID is the offered User-Agent with that ID.
+func UserAgentByID(id string) (UserAgent, bool) {
+	for _, ua := range UserAgents {
+		if strings.EqualFold(ua.ID, id) {
+			return ua, true
+		}
+	}
+	return UserAgent{}, false
 }
 
 // excludes reports whether the settings leave a target out.
@@ -126,6 +194,16 @@ func (s Settings) Validate() error {
 	if s.Threads < 1 || s.Threads > MaxThreads() {
 		return fmt.Errorf("threads must be between 1 and %d", MaxThreads())
 	}
+	if len(s.UserAgent) > MaxUserAgent {
+		return fmt.Errorf("the user agent must be at most %d bytes", MaxUserAgent)
+	}
+	// It goes into a header line as it stands: a control character (a CR
+	// or LF above all) would end the header and start another.
+	for _, r := range s.UserAgent {
+		if (r < 0x20 && r != '\t') || r == 0x7f {
+			return errors.New("the user agent can't hold control characters or line breaks")
+		}
+	}
 	return nil
 }
 
@@ -145,7 +223,6 @@ const (
 	maxRedirects = 10
 	// maxRecent is how many results Recent keeps.
 	maxRecent = 200
-	userAgent = "Mozilla/5.0 (compatible; reProxy-Autocrawl/1.0)"
 )
 
 // ScopeFunc reports whether a target covers a URL's host and allows its
@@ -293,6 +370,8 @@ type run struct {
 	wg       sync.WaitGroup
 	inFlight int
 	workers  int
+	// userAgent is the settings' User-Agent, fixed for the run.
+	userAgent string
 }
 
 // New returns a crawler with nothing crawled and the default settings.
@@ -429,7 +508,7 @@ func (c *Crawler) Start(s Settings) error {
 
 	c.lim.setRate(s.RequestsPerSecond)
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &run{ctx: ctx, cancel: cancel, workers: s.Threads}
+	r := &run{ctx: ctx, cancel: cancel, workers: s.Threads, userAgent: s.agent()}
 	c.run = r
 	c.ended, c.sent, c.started, c.finished, c.stopping = "", 0, time.Now(), time.Time{}, false
 	r.wg.Add(s.Threads)
@@ -627,7 +706,7 @@ func (c *Crawler) fetch(r *run, e *entry) {
 		c.requeue(r, e)
 		return
 	}
-	raw := requestFor(u)
+	raw := requestFor(u, r.userAgent)
 	addr := hostPort(u)
 	secure := u.Scheme == "https"
 	started := time.Now()
@@ -1048,8 +1127,8 @@ func specWithoutGet(detail string) bool {
 	return true
 }
 
-// requestFor is the GET the crawler sends for u.
-func requestFor(u *url.URL) []byte {
+// requestFor is the GET the crawler sends for u, as userAgent.
+func requestFor(u *url.URL, userAgent string) []byte {
 	var b strings.Builder
 	b.WriteString("GET " + u.RequestURI() + " HTTP/1.1\r\n")
 	b.WriteString("Host: " + u.Host + "\r\n")
