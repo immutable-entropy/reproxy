@@ -188,6 +188,36 @@ func (m *Manager) SetManaged(id string, managed bool) error {
 	return m.change(id, func(s *Session) { s.Managed = managed })
 }
 
+// SetInstructions sets a session's standing instructions (see
+// Session.Instructions). They apply from the next turn.
+func (m *Manager) SetInstructions(id, text string) error {
+	return m.change(id, func(s *Session) { s.Instructions = text })
+}
+
+// ClearContext forgets what the model has been told and has said so far, so
+// the next turn starts from the system prompt and the session's instructions
+// alone. The transcript is kept for the user to read. A service whose work
+// lives in the stores rather than in the conversation (the findings
+// reviewer: what is left to do is what has no score) clears it before each
+// round, so a long-running session doesn't send every earlier round with
+// every request.
+func (m *Manager) ClearContext(id string) error {
+	m.mu.Lock()
+	s, ok := m.sessions[id]
+	switch {
+	case !ok:
+		m.mu.Unlock()
+		return ErrNoSession
+	case s.Status == StatusRunning:
+		m.mu.Unlock()
+		return errors.New("a turn is running")
+	}
+	s.Convo = nil
+	m.mu.Unlock()
+	m.saveByID(id)
+	return nil
+}
+
 func (m *Manager) change(id string, mutate func(*Session)) error {
 	m.mu.Lock()
 	s, ok := m.sessions[id]

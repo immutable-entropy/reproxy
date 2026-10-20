@@ -20,15 +20,21 @@ import (
 // designated reviewer is the first profile whose toggle is on; it drives one
 // reused session so restarts don't pile them up, in auto mode so a background
 // turn never blocks on an approval no one is watching for.
+//
+// The brief is said once, as the session's standing instructions (sent with
+// the system prompt), and each round of new findings is a one-line nudge.
+// Each round also starts on a cleared context: the work left is whatever the
+// store has unscored, so nothing from an earlier round is needed, and
+// carrying it would send every past round's tool results with every request
+// of every later one.
 
 // reviewTitle names the session the reviewer drives, so it is recognised and
 // reused rather than a new one made each launch.
 const reviewTitle = "Findings review"
 
-// reviewInstruction is what the reviewer asks its agent to do when new
-// findings arrive. It is sent as a user turn because the runtime carries no
-// per-session system prompt for standing instructions.
-const reviewInstruction = "You are an expert security and quality assurance engineer that has been tasked with reviewing new " +
+// reviewInstructions are the review session's standing instructions
+// (agent.Session.Instructions).
+const reviewInstructions = "You are an expert security and quality assurance engineer that has been tasked with reviewing new " +
 	"findings discovered as part of a Security Assessment on a number of scoped systems. Findings are recorded " +
 	"by a number of automations and you must determine (a) if they warrant further review, and (b) two numeric scores: " +
 	"a confidence and a concern. Review every finding that has not been scored yet: list them with list_findings " +
@@ -39,6 +45,9 @@ const reviewInstruction = "You are an expert security and quality assurance engi
 	"set_finding_concern with a score from 0 to 100 — 0 for no concern, 100 for a critical issue likely to lead to " +
 	"exploitation. Score both for every finding. Only read and score; do not change or send any traffic. When every " +
 	"new finding has a confidence and a concern, stop."
+
+// reviewNudge starts each round of review.
+const reviewNudge = "New findings are waiting to be reviewed."
 
 // findingsReviewer drives the review session off the findings store's events.
 type findingsReviewer struct {
@@ -201,12 +210,17 @@ func (r *findingsReviewer) step() {
 		return // busy; onAgent wakes us when the turn finishes
 	}
 
-	// Take the work and start a turn. Clear the flag first; if the turn can't
-	// be started, put it back so the next wake retries.
+	// Take the work and start a turn on a fresh context. Clear the flag
+	// first; if the turn can't be started, put it back so the next wake
+	// retries.
 	r.mu.Lock()
 	r.dirty = false
 	r.mu.Unlock()
-	if err := r.mgr.Send(sid, reviewInstruction); err != nil {
+	err := r.mgr.ClearContext(sid)
+	if err == nil {
+		err = r.mgr.Send(sid, reviewNudge)
+	}
+	if err != nil {
 		r.mu.Lock()
 		r.dirty = true
 		r.mu.Unlock()
@@ -224,6 +238,8 @@ func (r *findingsReviewer) ensureSession(profile string) string {
 	for _, s := range r.mgr.List() {
 		if s.ProfileID == profile && s.Title == reviewTitle {
 			_ = r.mgr.SetManaged(s.ID, true)
+			// A session made before the brief was an instruction gets it now.
+			_ = r.mgr.SetInstructions(s.ID, reviewInstructions)
 			r.mu.Lock()
 			r.sessionID = s.ID
 			r.mu.Unlock()
@@ -235,6 +251,7 @@ func (r *findingsReviewer) ensureSession(profile string) string {
 	// no one is watching for; the instruction keeps it to reading and scoring.
 	_ = r.mgr.SetMode(sum.ID, agent.ModeAuto)
 	_ = r.mgr.SetManaged(sum.ID, true)
+	_ = r.mgr.SetInstructions(sum.ID, reviewInstructions)
 	r.mu.Lock()
 	r.sessionID = sum.ID
 	r.mu.Unlock()

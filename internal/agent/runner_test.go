@@ -13,11 +13,13 @@ type fakeProvider struct {
 	replies []Reply
 	calls   int
 	seen    [][]Entry
+	system  []string
 }
 
 func (f *fakeProvider) Name() string { return "fake" }
-func (f *fakeProvider) Complete(_ context.Context, _ string, history []Entry, _ []ToolSpec) (Reply, error) {
+func (f *fakeProvider) Complete(_ context.Context, system string, history []Entry, _ []ToolSpec) (Reply, error) {
 	f.seen = append(f.seen, append([]Entry(nil), history...))
+	f.system = append(f.system, system)
 	r := f.replies[f.calls]
 	f.calls++
 	return r, nil
@@ -84,6 +86,26 @@ func TestRunnerDrivesToolLoop(t *testing.T) {
 	// The second Complete got the tool result.
 	if len(fp.seen) != 2 || len(fp.seen[1]) != 3 {
 		t.Fatalf("history progression = %v", fp.seen)
+	}
+}
+
+// A session's standing instructions go to the model with the system prompt
+// on every request, never into the conversation.
+func TestRunnerSendsInstructionsWithTheSystemPrompt(t *testing.T) {
+	fp := &fakeProvider{replies: []Reply{{Text: "done"}}}
+	r := NewLoopRunner(fakeProviders{fp}, &fakeTools{})
+	convo, err := r.Run(context.Background(), Session{ID: "s1", Instructions: "Score every finding.",
+		Convo: []Entry{{Role: EntryUser, Text: "go"}}}, func(Message) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fp.system[0]; !contains(got, systemPrompt) || !contains(got, "Score every finding.") {
+		t.Fatalf("system = %q", got)
+	}
+	for _, e := range convo {
+		if contains(e.Text, "Score every finding.") {
+			t.Fatalf("instructions in the conversation: %+v", convo)
+		}
 	}
 }
 

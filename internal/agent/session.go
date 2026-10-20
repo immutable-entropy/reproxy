@@ -71,6 +71,12 @@ type Session struct {
 	// configuration — so it can't be left running unseen or shut without the
 	// service knowing.
 	Managed bool `json:"managed,omitempty"`
+	// Instructions are standing orders for every turn of the session, given
+	// to the model with the system prompt rather than as a message, so they
+	// are said once instead of being repeated into the conversation. A
+	// background service sets them for the session it drives (the findings
+	// reviewer's brief); a user's chat has none.
+	Instructions string `json:"instructions,omitempty"`
 	// Convo is the provider-neutral conversation the Runner drives the model
 	// with. It is persisted (so a session survives a restart with its full
 	// context, including any provider raw content) but never shown; Messages
