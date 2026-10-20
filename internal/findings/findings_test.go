@@ -733,6 +733,20 @@ func TestConfidenceTriage(t *testing.T) {
 	if n := len(s.Select(Query{MinConfidence: ConfidenceFloor})); n != 1 {
 		t.Errorf("an unreviewed finding was hidden by the floor: %d", n)
 	}
+	// The concern cutoff works the same way: a concern scored below it is
+	// hidden, one with no concern score is kept, and the two cutoffs combine.
+	if err := s.SetConcern(g.ID, ptrInt(10)); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.Select(Query{MinConcern: ConcernFloor})); n != 1 {
+		t.Errorf("concern floor: %d findings, want only the one with no concern score", n)
+	}
+	if n := len(s.Select(Query{MinConfidence: ConfidenceFloor, MinConcern: ConcernFloor})); n != 0 {
+		t.Errorf("both floors: %d findings, want none", n)
+	}
+	if err := s.SetConcern(g.ID, nil); err != nil {
+		t.Fatal(err)
+	}
 	unrev := s.Select(Query{UnreviewedOnly: true})
 	if len(unrev) != 1 || unrev[0].ID != g.ID {
 		t.Errorf("UnreviewedOnly didn't isolate the unscored finding: %+v", unrev)

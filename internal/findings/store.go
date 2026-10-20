@@ -734,6 +734,10 @@ type Query struct {
 	// simply off by default; the findings page sets it to ConfidenceFloor to
 	// hide the noise an agent has scored down.
 	MinConfidence int
+	// MinConcern hides findings whose concern is scored below this (see
+	// Finding.Concern), in the same way: a finding with no concern score is
+	// kept, and zero keeps everything.
+	MinConcern int
 	// UnreviewedOnly keeps only findings that have not been scored yet.
 	UnreviewedOnly bool
 	// FlowID keeps only findings seen in one request.
@@ -757,6 +761,9 @@ func (s *Store) Select(q Query) []Finding {
 		// The cutoff hides only reviewed-and-scored-low findings; an
 		// unreviewed finding has no score and is kept.
 		if f.Confidence != nil && *f.Confidence < q.MinConfidence {
+			continue
+		}
+		if f.Concern != nil && *f.Concern < q.MinConcern {
 			continue
 		}
 		if len(q.Types) > 0 && !anyType(f, q.Types) {

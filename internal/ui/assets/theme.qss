@@ -674,6 +674,11 @@ QComboBox {
 #ComboButton:pressed, #ComboButton:open {
     border: 1px solid {{.accent}};
 }
+/* A filter button that is on (Findings: Hide False Positives). */
+#ComboButton:checked {
+    background: {{.selected}};
+    border: 1px solid {{.accent}};
+}
 /* Select All / Select None at the top of a checkbox menu. */
 #MenuLink {
     color: {{.accent}};

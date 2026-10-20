@@ -161,10 +161,13 @@ const (
 
 // Concern runs from 0 to 100: 0 is no concern, 100 is critical — likely to
 // lead to exploitation — or absent (nil) until a finding is assessed. It
-// shares the 0–100 range with Confidence.
+// shares the 0–100 range with Confidence. The floor is the findings page's
+// default cutoff below which a scored finding is of too little concern to
+// list; like the confidence floor, it never hides an unscored finding.
 const (
-	ConcernMin = 0
-	ConcernMax = 100
+	ConcernMin   = 0
+	ConcernMax   = 100
+	ConcernFloor = 40
 )
 
 // autoReadBelow is the score under which a finding is low-value on an axis.
