@@ -1,6 +1,6 @@
-# Unit tests, on every push to any branch.
+# Unit tests, then supply-chain checks, on every push to any branch.
 #
-# Two jobs, so the quick answer doesn't wait on the slow one:
+# The tests are two jobs, so the quick answer doesn't wait on the slow one:
 #   core  the Qt-free packages (make test-core, with -race), plus gofmt and
 #         go vet over them: a few minutes.
 #   ui    the packages that need Qt (make test-ui). It runs in Ubuntu 26.04,
@@ -8,9 +8,20 @@
 #         first run compiles the Qt bindings (about 20 minutes); after that
 #         they come from the build cache.
 #
+# Once both pass, two checks run (skipped if a test failed):
+#   deps       make deps-check: every module version, and the toolchain,
+#              first published 14 or more days ago or excused in
+#              deps-soak.allow (tools/depsoak).
+#   vulncheck  make vulncheck: govulncheck over every package, failing on a
+#              known vulnerability our code reaches. It loads the Qt
+#              packages too, so it runs in the Qt job's container.
+# Both need the network, and are time-dependent: a version reaching 14 days
+# makes its allow line STALE (reported, not a failure), and a newly
+# published vulnerability can fail a commit that passed yesterday.
+#
 # Actions are pinned to a release's commit, chosen like a Go dependency
 # (see deps-soak.allow): published 14 or more days before it is adopted.
-name: Tests
+name: Tests and checks
 
 on:
   push:
@@ -73,3 +84,43 @@ jobs:
             go.mod
       - name: Test
         run: make test-ui
+
+  deps:
+    name: Dependency soak
+    needs: [core, ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check module and toolchain ages
+        run: make deps-check
+
+  vulncheck:
+    name: Vulnerabilities
+    needs: [core, ui]
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 30
+    steps:
+      - name: Install Qt and a C++ toolchain
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git make build-essential pkg-config qt6-base-dev
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # The Qt job's cache: the same container and key.
+          cache-dependency-path: |
+            go.sum
+            go.mod
+      - name: govulncheck
+        run: make vulncheck
