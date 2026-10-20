@@ -43,6 +43,7 @@
 package entities
 
 import (
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
@@ -457,6 +458,14 @@ type Visit struct {
 	Kind       Kind
 	// Server is the response's Server header, for the host.
 	Server string
+}
+
+// found reports whether the visit's answer says its path exists: there was
+// one, and it wasn't 404 Not Found or 410 Gone. Anything else — a redirect,
+// 401 or 403 in front of something protected, 405 for the wrong method, a
+// server error — is something there.
+func (v Visit) found() bool {
+	return v.Status != 0 && v.Status != http.StatusNotFound && v.Status != http.StatusGone
 }
 
 // Field is one parameter value from one request.

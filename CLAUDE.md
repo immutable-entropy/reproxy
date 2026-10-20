@@ -185,7 +185,11 @@ build toward them unless asked. Do keep every change consistent with them.
   them; a delete takes the subtree). Traffic reaches it through
   `entities.Indexer`,
   a store subscriber that only queues on the proxy's goroutine and parses
-  finished flows in batches on its own; plugins reach it through
+  finished flows in batches on its own. A visit only *creates* a URL when
+  its answer says the path exists (`Visit.found`: not 404/410, and an
+  answer at all), so a probe for `/.env` that comes back 404 maps the
+  origin that answered but not the path; a URL already known is visited
+  whatever it answers; plugins reach it through
   `Store.Discover` (`entities.addUrl`, whose `from` attributes a URL no
   flow led to, so a lookup made for a target can make a host Related). Discovery is core: every finished flow's response is
   read (`entities.FindURLs`: HTML, CSS, scripts, JSON, robots.txt,

@@ -258,3 +258,48 @@ func TestIndexerFollowsTheStore(t *testing.T) {
 		t.Errorf("clearing the traffic changed the store: %d entities", s.Len())
 	}
 }
+
+// A probe for a path that isn't there maps the host that answered but not
+// the path; a URL already known is still visited whatever the answer.
+func TestMissingPathsAreNotMapped(t *testing.T) {
+	s := NewStore()
+	for i, status := range []int{404, 410} {
+		if _, err := s.Apply(visit(t, flow(uint64(i+1), "GET", "app.test", "/.env", status, "", "nope"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := s.Get("https://app.test/.env"); ok {
+		t.Error("a path answered 404/410 was mapped")
+	}
+	for _, key := range []string{"https://app.test", "//app.test", "app.test"} {
+		if up, ok := s.Get(key); !ok || up.Hits != 2 {
+			t.Errorf("%s = %+v, %v; want it mapped with both hits", key, up, ok)
+		}
+	}
+
+	// No answer at all: nothing is mapped, not even the host.
+	if _, err := s.Apply(visit(t, flow(3, "GET", "gone.test", "/x", 0, "", ""))); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Get("https://gone.test"); ok {
+		t.Error("a host that never answered was mapped")
+	}
+
+	// What exists is mapped however it answers: a redirect, a 403 in front
+	// of something protected, a server error.
+	for i, status := range []int{302, 403, 405, 500} {
+		path := fmt.Sprintf("/there%d", i)
+		s.Apply(visit(t, flow(uint64(10+i), "GET", "app.test", path, status, "", "")))
+		if _, ok := s.Get("https://app.test" + path); !ok {
+			t.Errorf("a path answered %d wasn't mapped", status)
+		}
+	}
+
+	// A URL already known (it answered once, or a page linked to it) keeps
+	// its record when it later answers 404.
+	s.Apply(visit(t, flow(20, "GET", "app.test", "/page", 200, "", "")))
+	s.Apply(visit(t, flow(21, "GET", "app.test", "/page", 404, "", "")))
+	if e, ok := s.Get("https://app.test/page"); !ok || e.Hits != 2 {
+		t.Errorf("known URL after a 404 = %+v, %v; want both visits", e, ok)
+	}
+}
