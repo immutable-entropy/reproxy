@@ -326,6 +326,10 @@ func clearLayout(l *qt.QLayout) {
 	for l.Count() > 0 {
 		item := l.TakeAt(0)
 		if w := item.Widget(); w != nil {
+			// Hidden first: a widget added to a visible layout has a show
+			// queued, which would otherwise run after SetParent(nil) and put
+			// it on screen as a window of its own until DeleteLater.
+			w.Hide()
 			w.SetParent(nil)
 			w.DeleteLater()
 		}
