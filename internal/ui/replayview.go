@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	qt "github.com/mappu/miqt/qt6"
@@ -35,6 +36,7 @@ type replayView struct {
 	// routing over both of them.
 	messagePair
 	send       *qt.QPushButton
+	method     *qt.QComboBox
 	historyBtn *qt.QToolButton
 	status     *qt.QLabel
 	bottom     *qt.QWidget
@@ -57,7 +59,20 @@ type replayView struct {
 	// the send itself (replays are recorded in the store too). It is what a
 	// finding raised here points at.
 	flowID uint64
+	// syncingMethod is set while the method selector and the request's
+	// start line are put in step, so neither change echoes back.
+	syncingMethod bool
 }
+
+// replayMethods are offered in the method selector, which also takes any
+// other method typed into it (WebDAV's PROPFIND, a made-up one to see how
+// the server copes).
+var replayMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
+
+// bodyMethods are the methods that usually carry a body: switching to one
+// gives a request with no framing header a Content-Length, which ApplyEdit
+// then sets to the body's size, so a body typed in is sent as one.
+var bodyMethods = map[string]bool{"POST": true, "PUT": true, "PATCH": true}
 
 func newReplayView(sessions *replay.Sessions, sess replay.Session) *replayView {
 	r := &replayView{
@@ -135,12 +150,19 @@ func (r *replayView) buildBody(sess replay.Session) {
 	outer.SetContentsMargins(0, 0, 0, 0)
 	outer.SetSpacing(windowMargin)
 
-	// Header: target on the left, then the history toggle and Send.
+	// Header: the method and target on the left, then the history toggle
+	// and Send.
 	header := qt.NewQWidget2()
 	hb := qt.NewQHBoxLayout(header)
 	hb.SetContentsMargins(0, 0, 0, 0)
 	hb.SetSpacing(8)
-	target := qt.NewQLabel3(t.Method + "  " + t.URL)
+	r.method = qt.NewQComboBox2()
+	r.method.SetEditable(true)
+	r.method.SetInsertPolicy(qt.QComboBox__NoInsert)
+	r.method.AddItems(replayMethods)
+	r.method.SetMinimumWidth(110)
+	r.method.SetToolTip("The request method. Pick one or type your own; the request's first line follows it.")
+	target := qt.NewQLabel3(t.URL)
 	setName(target.QObject, "DetailSummary")
 	target.SetTextInteractionFlags(qt.TextSelectableByMouse)
 	target.SetToolTip(t.URL)
@@ -159,6 +181,7 @@ func (r *replayView) buildBody(sess replay.Session) {
 	r.send.SetToolTip("Send this request to the server (Ctrl+Enter)")
 	r.send.OnClicked(r.doSend)
 
+	hb.AddWidget(r.method.QWidget)
 	hb.AddWidget2(target.QWidget, 1)
 	hb.AddWidget(r.historyBtn.QWidget)
 	hb.AddWidget(r.send.QWidget)
@@ -167,6 +190,11 @@ func (r *replayView) buildBody(sess replay.Session) {
 	// Request | Response panels.
 	r.request = newMessageView(true)
 	r.request.setMessage(t.Raw, true)
+	// The selector and the start line are two ways to change one thing:
+	// each follows the other, whichever the user edits.
+	r.syncMethod(r.request.startLine.Text())
+	r.method.OnCurrentTextChanged(r.setMethod)
+	r.request.startLine.OnTextChanged(r.syncMethod)
 	r.response = newMessageView(true)
 	r.response.setPlaceholder("Send the request to see the response here.")
 	// A finding is often what a probe from here turns up, so the same
@@ -211,6 +239,41 @@ func (r *replayView) buildBody(sess replay.Session) {
 	r.status = qt.NewQLabel3("Ready")
 	setName(r.status.QObject, "Muted")
 	outer.AddWidget(r.status.QWidget)
+}
+
+// setMethod puts the method chosen in the selector into the request's start
+// line.
+func (r *replayView) setMethod(method string) {
+	if r.syncingMethod {
+		return
+	}
+	method = strings.TrimSpace(method)
+	line := r.request.startLine.Text()
+	next := intercept.WithMethod(line, method)
+	if next == line {
+		return
+	}
+	r.syncingMethod = true
+	r.request.startLine.SetText(next)
+	r.syncingMethod = false
+	if bodyMethods[method] && !r.request.hasFraming() {
+		r.request.addRow("Content-Length", "0")
+	}
+}
+
+// syncMethod shows the start line's method in the selector, after the line
+// was edited or a past send loaded.
+func (r *replayView) syncMethod(line string) {
+	if r.syncingMethod {
+		return
+	}
+	method := intercept.RequestMethod(line)
+	if method == r.method.CurrentText() {
+		return
+	}
+	r.syncingMethod = true
+	r.method.SetCurrentText(method)
+	r.syncingMethod = false
 }
 
 func wrapReplayPanel(title string, content *qt.QWidget) *qt.QWidget {

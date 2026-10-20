@@ -335,6 +335,18 @@ func (m *messageView) serialize() string {
 	return b.String()
 }
 
+// hasFraming reports whether the headers say how long the body is: a
+// Content-Length or a Transfer-Encoding.
+func (m *messageView) hasFraming() bool {
+	for _, r := range m.rows {
+		key := strings.TrimSpace(r.key.Text())
+		if strings.EqualFold(key, "Content-Length") || strings.EqualFold(key, "Transfer-Encoding") {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *messageView) addRow(key, value string) *headerRow {
 	r := &headerRow{w: qt.NewQWidget2()}
 	h := qt.NewQHBoxLayout(r.w)
