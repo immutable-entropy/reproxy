@@ -10,13 +10,19 @@ import (
 
 // messageView shows one HTTP message as structured, editable parts: the
 // start line, a key/value editor for the headers, and a body codeEditor
-// (with its language selector, validation and assists). A Pretty/Raw toggle (in the always-visible toolbar) swaps in the
-// exact raw text.
+// (with its language selector, validation and assists). A Pretty/Raw/HTML
+// selector (in the always-visible toolbar) swaps in the exact raw text, or
+// the body rendered as a page.
 //
 // Pretty shows the body as it reads: chunked framing and gzip, deflate,
 // brotli or zstd coding undone, JSON and XML laid out (see
 // intercept.EditableView). What was done appears beside the body's title, and
 // Raw always has the message as it stood on the wire.
+//
+// HTML renders the body as it reads in Pretty (so a held message's edits
+// show) with Qt's rich-text engine: no script runs and nothing is fetched,
+// since loading a page's images or styles from its server would send
+// requests the user never made, around the proxy (see newHTMLView).
 //
 // When editable (a held message), the start line and header values can be
 // changed and headers added or removed. serialize() turns the parts back into
@@ -24,8 +30,12 @@ import (
 // (Content-Length, CRLF, binary bodies) stays in the tested intercept package.
 type messageView struct {
 	root  *qt.QWidget        // toolbar (always visible) above the stack
-	stack *qt.QStackedWidget // 0: structured, 1: raw
+	stack *qt.QStackedWidget // one page per viewMode
 	pages *qt.QComboBox
+	// keepMode leaves the view in the mode the user chose when a new message
+	// is shown, rather than going back to Pretty (Replay, where the same
+	// request is sent again and again).
+	keepMode bool
 
 	split      *qt.QSplitter   // start line and headers above, body below
 	headerArea *qt.QScrollArea // the start line and headers
@@ -35,8 +45,9 @@ type messageView struct {
 	addHeader *qt.QPushButton
 	rows      []*headerRow
 
-	body    *codeEditor
-	rawView *qt.QPlainTextEdit
+	body     *codeEditor
+	rawView  *qt.QPlainTextEdit
+	htmlView *qt.QTextBrowser
 
 	editable bool
 
@@ -47,6 +58,24 @@ type messageView struct {
 	// half of it this view is showing, and turns the two into a finding.
 	onFinding func(value string, part messagePart, detail string)
 }
+
+// viewMode is which rendering of the message is on show. Its value is the
+// page's index in the stack and the selector.
+type viewMode int
+
+const (
+	viewPretty viewMode = iota
+	viewRaw
+	viewHTML
+)
+
+// viewModes labels the modes for the selectors, in viewMode order.
+var viewModes = []string{"Pretty", "Raw", "HTML"}
+
+// maxHTMLRender is the largest body rendered as HTML: Qt lays a document
+// out in one go on the UI thread, and a page past this is no use read that
+// way anyway.
+const maxHTMLRender = 4 << 20
 
 // messagePart is which part of a message a right-click happened in. The
 // owner maps it to a findings location, since only it knows whether this
@@ -68,8 +97,8 @@ type headerRow struct {
 func (r *headerRow) widget() *qt.QWidget { return r.w }
 
 // newMessageView builds a message view. With showToolbar it carries its own
-// Pretty/Raw toolbar (the Replay tool, where the two views sit side by side);
-// without it the caller drives the Pretty/Raw mode through showRaw (the
+// Pretty/Raw/HTML toolbar (the Replay tool, where the two views sit side by
+// side); without it the caller drives the mode through showMode (the
 // intercept pane, which puts one shared selector in the tab row).
 func newMessageView(showToolbar bool) *messageView {
 	m := &messageView{root: qt.NewQWidget2(), stack: qt.NewQStackedWidget2()}
@@ -158,9 +187,34 @@ func newMessageView(showToolbar bool) *messageView {
 		m.raise(value, m.rawPart(pos), "")
 	})
 
+	m.htmlView = newHTMLView()
+
 	m.stack.AddWidget(structured)
 	m.stack.AddWidget(m.rawView.QWidget)
+	m.stack.AddWidget(m.htmlView.QWidget)
 	return m
+}
+
+// newHTMLView builds the browser a body is rendered in. It is inert: links
+// are not followed, and every resource the page names (images, style
+// sheets) is refused except one carried in the page itself as a data: URL,
+// so rendering a response makes no request of its own and reads no local
+// file a page points at.
+func newHTMLView() *qt.QTextBrowser {
+	v := qt.NewQTextBrowser2()
+	setName(v.QObject, "HTMLView")
+	v.SetOpenLinks(false)
+	v.SetOpenExternalLinks(false)
+	v.OnLoadResource(func(super func(int, *qt.QUrl) *qt.QVariant, kind int, name *qt.QUrl) *qt.QVariant {
+		if strings.EqualFold(name.Scheme(), "data") {
+			return super(kind, name)
+		}
+		return qt.NewQVariant()
+	})
+	// A link's target is still worth knowing: hovering one shows where it
+	// points.
+	v.OnHighlighted(func(link *qt.QUrl) { v.SetToolTip(link.ToString()) })
+	return v
 }
 
 // splitEvenly gives the headers and the body half the height each, instead
@@ -194,8 +248,8 @@ func (m *messageView) buildToolbar() *qt.QWidget {
 	h.SetSpacing(8)
 
 	m.pages = qt.NewQComboBox2()
-	m.pages.AddItems([]string{"Pretty", "Raw"})
-	m.pages.OnCurrentIndexChanged(func(i int) { m.stack.SetCurrentIndex(i) })
+	m.pages.AddItems(viewModes)
+	m.pages.OnCurrentIndexChanged(func(i int) { m.showMode(viewMode(i)) })
 	h.AddWidget(m.pages.QWidget)
 	h.AddStretch()
 	return bar
@@ -239,10 +293,11 @@ func (m *messageView) setMessage(raw []byte, editable bool) {
 	// Raw is the message as it stood on the wire, whatever Pretty had to undo
 	// to make it readable.
 	m.rawView.SetPlainText(intercept.EditableText(raw))
-	if m.pages != nil {
-		m.pages.SetCurrentIndex(0)
+	if m.keepMode {
+		m.showMode(m.mode())
+	} else {
+		m.showMode(viewPretty)
 	}
-	m.stack.SetCurrentIndex(0)
 }
 
 // raise passes a right-click's text up to the view's owner, which turns it
@@ -264,22 +319,35 @@ func (m *messageView) rawPart(pos int) messagePart {
 	return partBody
 }
 
-// showRaw switches between the structured (Pretty) and raw views. It keeps an
-// own toolbar, if any, in step, so an external selector and the toolbar never
-// disagree.
-func (m *messageView) showRaw(raw bool) {
-	idx := 0
-	if raw {
-		idx = 1
+// showMode switches between the structured (Pretty), raw and HTML views. It
+// keeps an own toolbar, if any, in step, so an external selector and the
+// toolbar never disagree. HTML is rendered each time it is shown, from the
+// body as it now reads.
+func (m *messageView) showMode(mode viewMode) {
+	if mode == viewHTML {
+		m.renderHTML()
 	}
-	m.stack.SetCurrentIndex(idx)
-	if m.pages != nil && m.pages.CurrentIndex() != idx {
-		m.pages.SetCurrentIndex(idx)
+	m.stack.SetCurrentIndex(int(mode))
+	if m.pages != nil && m.pages.CurrentIndex() != int(mode) {
+		m.pages.SetCurrentIndex(int(mode))
 	}
 }
 
-// rawShown reports whether the raw view is the one currently visible.
-func (m *messageView) rawShown() bool { return m.stack.CurrentIndex() == 1 }
+// mode is the view currently visible.
+func (m *messageView) mode() viewMode { return viewMode(m.stack.CurrentIndex()) }
+
+// renderHTML puts the body, as it reads in Pretty, into the HTML view.
+func (m *messageView) renderHTML() {
+	body := m.body.text()
+	switch {
+	case strings.TrimSpace(body) == "":
+		m.htmlView.SetPlainText("There is no body to render.")
+	case len(body) > maxHTMLRender:
+		m.htmlView.SetPlainText("The body is too large to render as HTML; read it in Pretty or Raw.")
+	default:
+		m.htmlView.SetHtml(body)
+	}
+}
 
 // setPlaceholder shows a one-line message instead of a parsed message, for
 // states like "waiting for response".
@@ -293,6 +361,9 @@ func (m *messageView) setPlaceholder(text string) {
 	m.body.setText(text)
 	m.body.setLanguage(LangPlain)
 	m.rawView.SetPlainText(text)
+	if m.mode() == viewHTML {
+		m.renderHTML()
+	}
 }
 
 // bodyTitle labels the body editor, naming what was undone to make the body

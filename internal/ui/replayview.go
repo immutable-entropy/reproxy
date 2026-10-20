@@ -196,6 +196,9 @@ func (r *replayView) buildBody(sess replay.Session) {
 	r.method.OnCurrentTextChanged(r.setMethod)
 	r.request.startLine.OnTextChanged(r.syncMethod)
 	r.response = newMessageView(true)
+	// Sending again keeps the response in the view the user picked, so a
+	// page being probed can be watched as HTML send after send.
+	r.response.keepMode = true
 	r.response.setPlaceholder("Send the request to see the response here.")
 	// A finding is often what a probe from here turns up, so the same
 	// right-click works in a Replay window as in the Traffic viewer.

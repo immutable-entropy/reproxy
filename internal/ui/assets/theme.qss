@@ -577,6 +577,17 @@ QPlainTextEdit {
     selection-color: {{.text}};
 }
 
+/* A body rendered as HTML is a page, so it is drawn on white whatever the
+   theme, as a browser would draw it. */
+QTextBrowser#HTMLView {
+    background: #ffffff;
+    color: #000000;
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 6px 8px;
+}
+
 #EmptyState {
     color: {{.muted}};
 }
