@@ -20,7 +20,6 @@ import (
 
 	"reproxy/internal/app"
 	"reproxy/internal/config"
-	"reproxy/internal/ui"
 )
 
 // version is overridden at build time: -ldflags "-X main.version=1.2.3".
@@ -120,8 +119,7 @@ func run(args []string, stderr io.Writer) int {
 	if *headless {
 		return runHeadless(a, logger)
 	}
-	ui.Version = version
-	return ui.Run(a)
+	return launchUI(a)
 }
 
 // runHeadless keeps the app alive with no UI until the process is asked to

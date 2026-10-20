@@ -150,6 +150,48 @@ func TestSetManagedFlagPersistsAndCloseStillWorks(t *testing.T) {
 	}
 }
 
+// Instructions persist with the session, and ClearContext empties what the
+// next turn is given while keeping the transcript the user reads.
+func TestInstructionsPersistAndClearContextKeepsTranscript(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir, scriptRunner{emit: []Message{{Role: RoleAssistant, Text: "scored"}}})
+	sum := m.Create("p1", "Findings review")
+	if err := m.SetInstructions(sum.ID, "Score them."); err != nil {
+		t.Fatal(err)
+	}
+	m.Send(sum.ID, "round 1")
+	waitFor(t, "idle", func() bool { s, _ := m.Get(sum.ID); return s.Status == StatusIdle && len(s.Messages) == 2 })
+	if s, _ := m.Get(sum.ID); len(s.Convo) != 2 {
+		t.Fatalf("convo before clear = %+v", s.Convo)
+	}
+
+	if err := m.ClearContext(sum.ID); err != nil {
+		t.Fatal(err)
+	}
+	m2 := NewManager(dir, nil) // and it stays cleared across a reload
+	s, _ := m2.Get(sum.ID)
+	if len(s.Convo) != 0 || len(s.Messages) != 2 || s.Instructions != "Score them." {
+		t.Fatalf("after clear: convo %+v, %d messages, instructions %q", s.Convo, len(s.Messages), s.Instructions)
+	}
+	if err := m.ClearContext("nope"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("clear unknown = %v", err)
+	}
+}
+
+// A running turn's context isn't pulled from under it.
+func TestClearContextRefusesWhileRunning(t *testing.T) {
+	m := NewManager(t.TempDir(), scriptRunner{block: true})
+	sum := m.Create("p1", "x")
+	m.Send(sum.ID, "go")
+	waitFor(t, "running", func() bool { s, _ := m.Get(sum.ID); return s.Status == StatusRunning })
+	if err := m.ClearContext(sum.ID); err == nil {
+		t.Fatal("cleared a running session")
+	}
+	m.Stop(sum.ID)
+	// The turn saves the session as it ends; let it, before the directory goes.
+	waitFor(t, "stopped", func() bool { s, _ := m.Get(sum.ID); return s.Status == StatusIdle })
+}
+
 // TestTitleFromKeepsRunesWhole covers the one place the byte-slicing bug
 // was persisted rather than only displayed: a session title is written to
 // the sessions file, and json.Marshal silently substitutes U+FFFD for a

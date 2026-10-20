@@ -38,7 +38,7 @@ const FileName = "capture.db"
 
 // Version is the schema this build writes. An archive from a newer build is
 // refused rather than half-read.
-const Version = 15
+const Version = 16
 
 // wsRow is a WebSocket message queued for writing, with its flow.
 type wsRow struct {
@@ -275,6 +275,7 @@ CREATE TABLE findings (
 	author    TEXT    NOT NULL,
 	viewed    INTEGER NOT NULL,
 	hidden    INTEGER NOT NULL DEFAULT 0,
+	awaiting_review INTEGER NOT NULL DEFAULT 0,
 	confidence INTEGER,
 	concern   INTEGER,
 	created   INTEGER NOT NULL,
@@ -631,6 +632,10 @@ var upgrades = map[int]string{
 	// recovered are in its recovered/ folder but were never recorded, so
 	// there is nothing to backfill: the table starts empty.
 	14: filesSchema,
+	// 16: a new finding can wait for the findings reviewer's first look
+	// before it is announced as unread. Findings already recorded have
+	// been announced.
+	15: `ALTER TABLE findings ADD COLUMN awaiting_review INTEGER NOT NULL DEFAULT 0`,
 }
 
 // upgrade brings an archive at an older schema up to Version, one step at a

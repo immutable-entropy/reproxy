@@ -90,8 +90,25 @@ build toward them unless asked. Do keep every change consistent with them.
 
 ## Working in this repo
 
+- **Commit each change as it is made**, to the current branch, one commit
+  per change (set by the project owner), rather than leaving work
+  uncommitted for later.
+- **Never push.** Pushing (to any remote, any branch, tags included) is
+  only ever done by the project owner; don't push, and don't offer to.
+- **Commit messages describe the change and nothing else** (set by the
+  project owner): no mention of AI, assistants, models or the agent that
+  made the change, and no `Co-Authored-By` or "Generated with" lines.
 - `make test-core` runs the Qt-free packages with `-race`: fast, no display
-  needed. `make test` runs everything. Don't add `-race` to the Qt packages:
+  needed. `make test` runs everything (`make test-ui` is the Qt half).
+  GitHub Actions runs both on every push to any branch
+  (`.github/workflows/test.yml`: the core job with gofmt and vet, and the
+  Qt job in an Ubuntu 26.04 container like the devcontainer), and once
+  both pass, `make deps-check` and `make vulncheck` (in the Qt container,
+  since govulncheck loads the Qt packages). A `v<digit>…` tag on main runs
+  `.github/workflows/release.yml`: all of the above, then the .deb (built
+  in Ubuntu 26.04) and the .rpm (in Fedora 44) by `packaging/package.sh`,
+  published as that tag's GitHub Release. Actions are pinned to a
+  release's commit SHA, published 14 or more days earlier. Don't add `-race` to the Qt packages:
   it forces a separate rebuild of the Qt bindings that takes about 20 minutes.
 - **Dependencies soak for 14 days.** Never run `go get -u`, `go get
   …@latest` or anything else that takes the newest version: pick a version
@@ -185,7 +202,11 @@ build toward them unless asked. Do keep every change consistent with them.
   them; a delete takes the subtree). Traffic reaches it through
   `entities.Indexer`,
   a store subscriber that only queues on the proxy's goroutine and parses
-  finished flows in batches on its own; plugins reach it through
+  finished flows in batches on its own. A visit only *creates* a URL when
+  its answer says the path exists (`Visit.found`: not 404/410, and an
+  answer at all), so a probe for `/.env` that comes back 404 maps the
+  origin that answered but not the path; a URL already known is visited
+  whatever it answers; plugins reach it through
   `Store.Discover` (`entities.addUrl`, whose `from` attributes a URL no
   flow led to, so a lookup made for a target can make a host Related). Discovery is core: every finished flow's response is
   read (`entities.FindURLs`: HTML, CSS, scripts, JSON, robots.txt,
@@ -310,6 +331,14 @@ build toward them unless asked. Do keep every change consistent with them.
   on screen and nothing else — it is still stored, searched and handed to
   agents and plugins, because a value an agent can't read is one it can't
   test — and a merge can hide a finding but never un-hide it.
+  While the findings reviewer (`app/findingsreview.go`, an agent session)
+  is enabled, a new finding it will review is held back
+  (`Finding.AwaitingReview`, through `Store.SetReviewHold`): not unread and
+  not in the badge until its review settles it — unread if it scores
+  `Notable` (both scores at or above their floors), read if not — or the
+  turn that set out to review it ends without scoring it, which releases it
+  unread (`Store.ReleaseReview`), so a reviewer that can't run never hides
+  a finding.
 - `files` (Qt-free core) is what the work **recovered**: the record of every
   file pulled out of the traffic and written under the engagement — the
   original source a map carries, a bundle taken apart, an asset kept for a
@@ -498,7 +527,11 @@ build toward them unless asked. Do keep every change consistent with them.
   host extends a running crawl. The limits are strict: request starts are
   spaced at least 1/rate apart with no burst (across workers, stops and
   starts), and at most `Threads` (≤ `crawl.MaxThreads()`, one per CPU)
-  are in flight. It crawls what it is led to, not what might be there:
+  are in flight. Every request carries `Settings.UserAgent` (reProxy's
+  own, `crawl.DefaultUserAgent`, when empty; the window and `--user-agent`
+  offer `crawl.UserAgents` or the user's own text, refused if it holds a
+  control character, since it goes into a header line as it stands).
+  It crawls what it is led to, not what might be there:
   the URLs the Explorer knows, every origin's `crawl.SitemapPaths`
   (robots.txt, sitemap.xml), and whatever those turn up, recursively.
   Guessing at `crawl.APIDocPaths` (the usual OpenAPI/Swagger locations)

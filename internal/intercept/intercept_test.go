@@ -329,3 +329,23 @@ func waitHeld(t *testing.T, i *Interceptor, id uint64) {
 	}
 	t.Fatal("never held")
 }
+
+func TestWithMethod(t *testing.T) {
+	for _, tc := range []struct{ line, method, want string }{
+		{"GET /a?b=c HTTP/1.1", "POST", "POST /a?b=c HTTP/1.1"},
+		{"GET http://h/x HTTP/1.1", "PROPFIND", "PROPFIND http://h/x HTTP/1.1"},
+		{"GET", "PUT", "PUT"},
+		{"GET /a HTTP/1.1", "", "GET /a HTTP/1.1"},
+		{"GET /a HTTP/1.1", "BAD METHOD", "GET /a HTTP/1.1"},
+	} {
+		if got := WithMethod(tc.line, tc.method); got != tc.want {
+			t.Errorf("WithMethod(%q, %q) = %q, want %q", tc.line, tc.method, got, tc.want)
+		}
+	}
+	if got := RequestMethod("DELETE /x HTTP/1.1"); got != "DELETE" {
+		t.Errorf("RequestMethod = %q", got)
+	}
+	if got := RequestMethod(""); got != "" {
+		t.Errorf("RequestMethod of an empty line = %q", got)
+	}
+}

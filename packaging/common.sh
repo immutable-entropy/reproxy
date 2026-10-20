@@ -13,14 +13,12 @@ APP_ID="reproxy"            # binary name, package name, icon/desktop basename
 APP_NAME="reProxy"          # human-readable name
 APP_SUMMARY="Intercepting proxy for inspecting, editing and replaying HTTP traffic"
 APP_VENDOR="reProxy"
-APP_HOMEPAGE="https://github.com/reproxy/reproxy"
-APP_MAINTAINER="${REPROXY_MAINTAINER:-reProxy <noreply@example.com>}"
+APP_HOMEPAGE="https://github.com/immutable-entropy/reproxy"
+APP_MAINTAINER="${REPROXY_MAINTAINER:-Kayleigh <0x95private@pm.me>}"
 
-# PLACEHOLDER: the repository declares no licence -- there is no LICENSE file
-# and neither README.md nor go.mod names one. Both packagers stamp this value
-# into their metadata (deb/copyright and the rpm License: tag), so set it here
-# once the project picks a licence, and update packaging/deb/copyright to
-# match.
+# The licence in LICENSE at the repository root. Both packagers stamp it into
+# their metadata (deb/copyright and the rpm License: tag); if it ever
+# changes, update LICENSE and packaging/deb/copyright with it.
 APP_LICENSE="MIT"
 
 # The MCP server's systemd/launchd service name, and its default port

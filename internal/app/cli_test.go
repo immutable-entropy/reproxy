@@ -392,6 +392,12 @@ func TestCrawlAndMCPCommands(t *testing.T) {
 	contains(t, run(t, reg, "crawl", "status"), "Autocrawl is idle")
 	contains(t, run(t, reg, "crawl", "settings"), "rate", "threads")
 	contains(t, run(t, reg, "crawl", "settings", "--rate", "3"), "3 requests a second")
+	contains(t, run(t, reg, "crawl", "settings"), "reproxy (reProxy Autocrawl)")
+	contains(t, run(t, reg, "crawl", "settings", "--user-agent", "firefox-linux"), "firefox-linux (Firefox on Linux)")
+	contains(t, run(t, reg, "crawl", "settings", "--user-agent", "MyAgent/1"), "agent     MyAgent/1")
+	if err := runErr(t, reg, "crawl", "settings", "--user-agent", "a\nb"); err == nil {
+		t.Error("a user agent with a line break was accepted")
+	}
 	if err := runErr(t, reg, "crawl", "start"); !strings.Contains(err.Error(), "--yes") {
 		t.Errorf("a crawl without --yes says %q", err)
 	}

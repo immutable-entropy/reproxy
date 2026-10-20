@@ -496,6 +496,7 @@ func v7Tables() []string {
 	return []string{
 		`DROP TABLE crawl_urls`, `DROP TABLE crawl_meta`,
 		`DROP TABLE entity_links`, `DROP TABLE entity_flows`, `DROP TABLE entities`, `DROP TABLE entity_meta`,
+		`ALTER TABLE findings DROP COLUMN awaiting_review`,
 		`ALTER TABLE findings DROP COLUMN concern`,
 		`ALTER TABLE findings DROP COLUMN confidence`,
 		`ALTER TABLE findings DROP COLUMN hidden`,
@@ -509,6 +510,7 @@ func v4Tables() []string {
 		`DROP TABLE crawl_urls`, `DROP TABLE crawl_meta`,
 		`ALTER TABLE flows DROP COLUMN origin`,
 		`ALTER TABLE flows DROP COLUMN protocol`,
+		`ALTER TABLE findings DROP COLUMN awaiting_review`,
 		`ALTER TABLE findings DROP COLUMN concern`,
 		`ALTER TABLE findings DROP COLUMN confidence`,
 		`ALTER TABLE findings DROP COLUMN hidden`,
@@ -665,7 +667,7 @@ func TestOpenUpgradesAVersion11Archive(t *testing.T) {
 			VALUES (1, 'a', 'a', '', '[]', 'user', '', 1, 0, 0, 0, 0)`,
 		`INSERT INTO findings (seq, value, value_key, notes, fields, source, author, viewed, hidden, false_positive, created, updated)
 			VALUES (2, 'b', 'b', '', '[]', 'plugin', '', 0, 0, 1, 0, 0)`,
-		`DROP TABLE files`, `PRAGMA user_version = 11`,
+		`ALTER TABLE findings DROP COLUMN awaiting_review`, `DROP TABLE files`, `PRAGMA user_version = 11`,
 	} {
 		if _, err := a.db.Exec(q); err != nil {
 			t.Fatal(q, err)
@@ -710,7 +712,7 @@ func TestOpenUpgradesAVersion12Archive(t *testing.T) {
 			VALUES (1, 'a', 'a', '', '[]', 'user', '', 1, 0, 50, 0, 0)`,
 		`INSERT INTO findings (seq, value, value_key, notes, fields, source, author, viewed, hidden, confidence, created, updated)
 			VALUES (2, 'b', 'b', '', '[]', 'plugin', '', 0, 0, 20, 0, 0)`,
-		`DROP TABLE files`, `PRAGMA user_version = 12`,
+		`ALTER TABLE findings DROP COLUMN awaiting_review`, `DROP TABLE files`, `PRAGMA user_version = 12`,
 	} {
 		if _, err := a.db.Exec(q); err != nil {
 			t.Fatal(q, err)
@@ -752,7 +754,7 @@ func TestOpenUpgradesAVersion13Archive(t *testing.T) {
 		`ALTER TABLE findings DROP COLUMN concern`,
 		`INSERT INTO findings (seq, value, value_key, notes, fields, source, author, viewed, hidden, confidence, created, updated)
 			VALUES (1, 'a', 'a', '', '[]', 'user', '', 1, 0, 80, 0, 0)`,
-		`DROP TABLE files`,
+		`ALTER TABLE findings DROP COLUMN awaiting_review`, `DROP TABLE files`,
 		`PRAGMA user_version = 13`,
 	} {
 		if _, err := a.db.Exec(q); err != nil {
@@ -786,7 +788,7 @@ func TestOpenUpgradesAVersion14Archive(t *testing.T) {
 	}
 	// Take the archive back to schema 14: findings and the Explorer, but no
 	// record of the files the work recovered.
-	for _, q := range []string{`DROP TABLE files`, `PRAGMA user_version = 14`} {
+	for _, q := range []string{`ALTER TABLE findings DROP COLUMN awaiting_review`, `DROP TABLE files`, `PRAGMA user_version = 14`} {
 		if _, err := a.db.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}
@@ -806,6 +808,40 @@ func TestOpenUpgradesAVersion14Archive(t *testing.T) {
 	var n int
 	if err := again.db.QueryRow(`SELECT count(*) FROM files`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("files after the upgrade: %d rows, err %v", n, err)
+	}
+}
+
+// A version 15 archive's findings have all been announced already, so none
+// comes out of the upgrade waiting for the reviewer.
+func TestOpenUpgradesAVersion15Archive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`ALTER TABLE findings DROP COLUMN awaiting_review`,
+		`INSERT INTO findings (seq, value, value_key, notes, fields, source, author, viewed, hidden, created, updated)
+			VALUES (1, 'a', 'a', '', '[]', 'plugin', '', 0, 0, 0, 0)`,
+		`PRAGMA user_version = 15`,
+	} {
+		if _, err := a.db.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	a.Close()
+
+	again, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	var viewed, awaiting int
+	if err := again.db.QueryRow(`SELECT viewed, awaiting_review FROM findings WHERE seq = 1`).Scan(&viewed, &awaiting); err != nil {
+		t.Fatal(err)
+	}
+	if viewed != 0 || awaiting != 0 {
+		t.Fatalf("after the upgrade: viewed %d, awaiting %d", viewed, awaiting)
 	}
 }
 
@@ -876,6 +912,7 @@ func TestOpenUpgradesAVersion9Archive(t *testing.T) {
 	}
 	for _, q := range []string{`DROP TABLE crawl_urls`, `DROP TABLE crawl_meta`,
 		`DROP TABLE files`,
+		`ALTER TABLE findings DROP COLUMN awaiting_review`,
 		`ALTER TABLE findings DROP COLUMN concern`,
 		`ALTER TABLE findings DROP COLUMN confidence`, `PRAGMA user_version = 9`} {
 		if _, err := a.db.Exec(q); err != nil {

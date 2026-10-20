@@ -161,11 +161,27 @@ const (
 
 // Concern runs from 0 to 100: 0 is no concern, 100 is critical — likely to
 // lead to exploitation — or absent (nil) until a finding is assessed. It
-// shares the 0–100 range with Confidence.
+// shares the 0–100 range with Confidence. The floor is the findings page's
+// default cutoff below which a scored finding is of too little concern to
+// list; like the confidence floor, it never hides an unscored finding.
 const (
-	ConcernMin = 0
-	ConcernMax = 100
+	ConcernMin   = 0
+	ConcernMax   = 100
+	ConcernFloor = 40
 )
+
+// Notable reports whether a finding's review found something worth the
+// user's attention: it is likely real and of some concern, scoring at or
+// above both floors — what the findings page shows by default. A finding
+// missing either score is not notable yet.
+func (f Finding) Notable() bool {
+	return f.Confidence != nil && *f.Confidence >= ConfidenceFloor &&
+		f.Concern != nil && *f.Concern >= ConcernFloor
+}
+
+// Unread reports whether the finding is news to the user: not opened, and
+// not held back for the reviewer's first look.
+func (f Finding) Unread() bool { return !f.Viewed && !f.AwaitingReview }
 
 // autoReadBelow is the score under which a finding is low-value on an axis.
 // When both its confidence and its concern are assessed and below it, the
@@ -305,8 +321,16 @@ type Finding struct {
 	Source Source `json:"source"`
 	Author string `json:"author,omitempty"`
 	// Viewed is false until the user opens the finding. The Findings badge
-	// counts the findings that are not.
+	// counts the findings that are not (see Unread).
 	Viewed bool `json:"viewed"`
+	// AwaitingReview holds a new finding back from the user while the
+	// findings reviewer (an agent) gives it a first review: it is not
+	// unread, nor counted in the badge, until the review settles it. A
+	// review that scores it notable (see Notable) leaves it unread; one that
+	// scores it otherwise marks it read; a review that fails or ends without
+	// scoring it releases it unread. Only findings recorded while a hold is
+	// set (Store.SetReviewHold) wait like this.
+	AwaitingReview bool `json:"awaiting_review,omitempty"`
 	// Hidden says the value is a secret in itself — a password, a key, a
 	// session token, a card number, a national identifier — so the UI keeps
 	// it masked until the user asks to see it (the eye beside the value).

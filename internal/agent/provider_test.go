@@ -49,8 +49,18 @@ func TestAnthropicProvider(t *testing.T) {
 	if reply.Text != "flow 1 is a GET" || len(reply.Calls) != 0 {
 		t.Fatalf("reply = %+v", reply)
 	}
-	if gotReq.System != "be helpful" || gotReq.Model != "claude-opus-5-5" || len(gotReq.Tools) != 1 {
+	if len(gotReq.System) != 1 || gotReq.System[0].Text != "be helpful" || gotReq.Model != "claude-opus-5-5" || len(gotReq.Tools) != 1 {
 		t.Fatalf("request = %+v", gotReq)
+	}
+	// Cached: the prefix up to the system prompt, and the conversation up to
+	// its newest message. The tools are inside the first, so carry none.
+	if gotReq.System[0].CacheControl == nil || gotReq.Tools[0].CacheControl != nil {
+		t.Fatalf("system/tools cache marks = %+v / %+v", gotReq.System[0].CacheControl, gotReq.Tools[0].CacheControl)
+	}
+	for i, m := range gotReq.Messages {
+		if marked := strings.Contains(string(m.Content), `"cache_control"`); marked != (i == len(gotReq.Messages)-1) {
+			t.Fatalf("message %d marked=%v: %s", i, marked, m.Content)
+		}
 	}
 	// The tool_use and tool_result must have been sent, paired by ID.
 	if len(gotReq.Messages) != 3 {
@@ -76,6 +86,36 @@ func TestAnthropicProviderReturnsToolCall(t *testing.T) {
 	}
 	if len(reply.Raw) == 0 { // raw content kept for echo-back
 		t.Fatal("raw content not captured")
+	}
+}
+
+// With no system prompt the tools carry the first breakpoint; a message
+// whose last block can't carry one is sent as it was.
+func TestAnthropicCacheBreakpoints(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		io.WriteString(w, `{"stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]}`)
+	}))
+	defer srv.Close()
+	p, _ := NewProvider("anthropic", "m", srv.URL, "k", 0)
+	if _, err := p.Complete(context.Background(), "", []Entry{{Role: EntryUser, Text: "hi"}}, toolSpecs()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["system"]; ok {
+		t.Fatalf("empty system prompt sent: %v", body["system"])
+	}
+	tools := body["tools"].([]any)
+	if tools[len(tools)-1].(map[string]any)["cache_control"] == nil {
+		t.Fatalf("last tool not marked: %v", tools)
+	}
+
+	thinking := json.RawMessage(`[{"type":"thinking","thinking":"hm","signature":"s"}]`)
+	if got := cacheLastBlock(thinking); string(got) != string(thinking) {
+		t.Fatalf("thinking block marked: %s", got)
+	}
+	if got := cacheLastBlock(json.RawMessage(`"plain"`)); string(got) != `"plain"` {
+		t.Fatalf("string content changed: %s", got)
 	}
 }
 

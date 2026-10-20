@@ -30,20 +30,23 @@ import (
 
 // findingOut is a finding in tool output.
 type findingOut struct {
-	Handle     string           `json:"handle"`
-	Value      string           `json:"value,omitempty"`
-	Types      []string         `json:"types,omitempty"`
-	Notes      string           `json:"notes,omitempty"`
-	Fields     []findings.Field `json:"fields,omitempty"`
-	Source     string           `json:"source"`
-	Author     string           `json:"author,omitempty"`
-	Viewed     bool             `json:"viewed"`
-	Hidden     bool             `json:"hidden,omitempty"`
-	Confidence *int             `json:"confidence"`
-	Concern    *int             `json:"concern"`
-	Seen       []seenOut        `json:"seen,omitempty"`
-	Created    time.Time        `json:"created"`
-	Updated    time.Time        `json:"updated"`
+	Handle string           `json:"handle"`
+	Value  string           `json:"value,omitempty"`
+	Types  []string         `json:"types,omitempty"`
+	Notes  string           `json:"notes,omitempty"`
+	Fields []findings.Field `json:"fields,omitempty"`
+	Source string           `json:"source"`
+	Author string           `json:"author,omitempty"`
+	Viewed bool             `json:"viewed"`
+	// AwaitingReview: held back from the user until the findings reviewer
+	// scores it (findings.Finding.AwaitingReview).
+	AwaitingReview bool      `json:"awaiting_review,omitempty"`
+	Hidden         bool      `json:"hidden,omitempty"`
+	Confidence     *int      `json:"confidence"`
+	Concern        *int      `json:"concern"`
+	Seen           []seenOut `json:"seen,omitempty"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
 }
 
 // seenOut is one sighting: where the finding was seen, and the flow it was
@@ -59,19 +62,20 @@ type seenOut struct {
 
 func toFindingOut(instanceID string, f findings.Finding) findingOut {
 	out := findingOut{
-		Handle:     findingHandle(instanceID, f.ID),
-		Value:      capped(f.Value),
-		Types:      f.Types,
-		Notes:      capped(f.Notes),
-		Fields:     f.Fields,
-		Source:     string(f.Source),
-		Author:     f.Author,
-		Viewed:     f.Viewed,
-		Hidden:     f.Hidden,
-		Confidence: f.Confidence,
-		Concern:    f.Concern,
-		Created:    f.Created,
-		Updated:    f.Updated,
+		Handle:         findingHandle(instanceID, f.ID),
+		Value:          capped(f.Value),
+		Types:          f.Types,
+		Notes:          capped(f.Notes),
+		Fields:         f.Fields,
+		Source:         string(f.Source),
+		Author:         f.Author,
+		Viewed:         f.Viewed,
+		AwaitingReview: f.AwaitingReview,
+		Hidden:         f.Hidden,
+		Confidence:     f.Confidence,
+		Concern:        f.Concern,
+		Created:        f.Created,
+		Updated:        f.Updated,
 	}
 	for _, l := range f.Links {
 		s := seenOut{Method: l.Method, URL: l.URL, Location: l.Location, Detail: l.Detail}

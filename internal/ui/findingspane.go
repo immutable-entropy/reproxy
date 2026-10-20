@@ -35,17 +35,18 @@ type findingsPane struct {
 	root  *qt.QWidget
 	store *findings.Store
 
-	list       *qt.QListWidget
-	count      *qt.QLabel
-	unseen     *qt.QLabel
-	pages      *qt.QStackedWidget // 0: empty state, 1: the list
-	markRead   *qt.QPushButton    // marks every finding read
-	filters    *qt.QWidget        // the type pills' row
-	filtersBox *qt.QHBoxLayout
-	pills      []*pill
-	chosen     map[string]bool // type IDs the filter is limited to
-	search     *qt.QLineEdit
-	confFilter *confidenceFilter // hide findings scored below a cutoff
+	list          *qt.QListWidget
+	count         *qt.QLabel
+	unseen        *qt.QLabel
+	pages         *qt.QStackedWidget // 0: empty state, 1: the list
+	markRead      *qt.QPushButton    // marks every finding read
+	filters       *qt.QWidget        // the type pills' row
+	filtersBox    *qt.QHBoxLayout
+	pills         []*pill
+	chosen        map[string]bool // type IDs the filter is limited to
+	search        *qt.QLineEdit
+	confFilter    *scoreFilter // hide findings scored below a confidence
+	concernFilter *scoreFilter // hide findings scored below a concern
 
 	split       *qt.QSplitter
 	detail      *findingDetail
@@ -195,16 +196,33 @@ func (p *findingsPane) buildHeader() *qt.QWidget {
 	p.markRead.SetToolTip("Mark every finding as read")
 	p.markRead.OnClicked(p.markAllRead)
 
-	// Hide the low-confidence noise by default (below the floor), so the list
-	// is the findings worth looking at; the drop-down changes the cutoff and
-	// clicking the button turns the filter off to show everything.
-	p.confFilter = newConfidenceFilter(findings.ConfidenceFloor, p.reload)
+	// Hide the likely false positives and the findings of little concern by
+	// default (below each floor), so the list is the findings worth looking
+	// at; each drop-down changes its cutoff and clicking a button turns that
+	// filter off.
+	p.confFilter = newScoreFilter(scoreFilterSpec{
+		label:   "Hide False Positives",
+		what:    "confidence",
+		heading: "Hide findings with a confidence below",
+		help: "50 is unknown. Below leans false positive; above leans true positive. " +
+			"Agents score new findings as they review them.",
+		min: findings.ConfidenceMin, max: findings.ConfidenceMax,
+	}, findings.ConfidenceFloor, p.reload)
+	p.concernFilter = newScoreFilter(scoreFilterSpec{
+		label:   "Hide Low Concern",
+		what:    "concern",
+		heading: "Hide findings with a concern below",
+		help: "0 is no concern; 100 is a critical issue likely to lead to exploitation. " +
+			"Agents score new findings as they review them.",
+		min: findings.ConcernMin, max: findings.ConcernMax,
+	}, findings.ConcernFloor, p.reload)
 
 	h.AddWidget(title.QWidget)
 	h.AddWidget(p.count.QWidget)
 	h.AddWidget(p.unseen.QWidget)
 	h.AddStretch()
 	h.AddWidget(p.confFilter.widget())
+	h.AddWidget(p.concernFilter.widget())
 	h.AddWidget(p.markRead.QWidget)
 	h.AddWidget(p.search.QWidget)
 	h.AddWidget(newIconButton(iconPlus, "Record a finding by hand", p.addFinding).w)
@@ -307,7 +325,10 @@ func (p *findingsPane) reload() {
 
 	q := findings.Query{}
 	if p.confFilter != nil {
-		q.MinConfidence = p.confFilter.minConfidence()
+		q.MinConfidence = p.confFilter.min()
+	}
+	if p.concernFilter != nil {
+		q.MinConcern = p.concernFilter.min()
 	}
 	for id := range p.chosen {
 		q.Types = append(q.Types, id)
@@ -383,7 +404,7 @@ func (p *findingsPane) buildRow(f findings.Finding, catalog func(string) (string
 	row.SetAttribute(qt.WA_StyledBackground)
 	// A string, because that is what a stylesheet selector matches on
 	// (see #FindingRow[unviewed="true"] in theme.qss).
-	row.SetProperty("unviewed", qt.NewQVariant11(fmt.Sprint(!f.Viewed)))
+	row.SetProperty("unviewed", qt.NewQVariant11(fmt.Sprint(f.Unread())))
 
 	h := qt.NewQHBoxLayout(row)
 	h.SetContentsMargins(rowPadX, 6, rowPadX-4, 6)
@@ -411,6 +432,11 @@ func (p *findingsPane) buildRow(f findings.Finding, catalog func(string) (string
 		if note != "" {
 			sub = note + " · " + sub
 		}
+	}
+	if f.AwaitingReview {
+		// Not announced yet: the reviewer agent takes a first look, and
+		// only what it finds notable arrives unread.
+		sub = "Awaiting agent review · " + sub
 	}
 	detail := qt.NewQLabel3(sub)
 	setName(detail.QObject, "Muted")

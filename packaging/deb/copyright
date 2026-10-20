@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: reproxy
-Source: https://github.com/reproxy/reproxy
+Source: https://github.com/immutable-entropy/reproxy
 
 Files: *
 Copyright: reProxy contributors

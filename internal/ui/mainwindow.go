@@ -1390,8 +1390,20 @@ func (w *mainWindow) toggleFilter(open bool) {
 }
 
 // focusFilter opens the filter bar (if closed) and puts the cursor in it, so
-// Ctrl+F starts a fresh filter or refines the current one.
+// Ctrl+F starts a fresh filter or refines the current one. In Replay, or
+// with the keyboard in the request/response viewer, Ctrl+F searches the
+// messages on show instead.
 func (w *mainWindow) focusFilter() {
+	if w.replay.active {
+		if v := w.replay.currentView(); v != nil {
+			v.search.open()
+		}
+		return
+	}
+	if fw := qt.QApplication_FocusWidget(); fw != nil && w.detail.root.IsAncestorOf(fw) {
+		w.detail.search.open()
+		return
+	}
 	if !w.searchOpen {
 		w.toggleFilter(true)
 		return // toggleFilter focuses and selects on open

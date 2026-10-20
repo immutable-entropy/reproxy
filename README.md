@@ -718,3 +718,9 @@ the check is a single atomic load per message.
 
 Known limitation: if the browser gives up on a request while it's held, the
 flow stays held until you forward or drop it; the send then fails.
+
+~~
+
+## License
+
+reProxy is released under the MIT License; see [LICENSE](LICENSE).

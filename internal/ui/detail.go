@@ -29,9 +29,11 @@ type detailPane struct {
 	forward *qt.QPushButton
 	drop    *qt.QPushButton
 	tabs    *qt.QTabWidget
-	// pages is the shared Pretty/Raw selector in the tab row, driving whichever
+	// pages is the shared Pretty/Raw/HTML selector in the tab row, driving whichever
 	// message (Request or Response) is in view.
 	pages *qt.QComboBox
+	// search finds text in the shown request and response.
+	search *messageSearch
 
 	// messagePair carries request/response and the Edit-menu and theme
 	// routing over both of them.
@@ -113,18 +115,19 @@ func newDetailPane() *detailPane {
 	// splitter to give the body more room.
 	d.request.splitHeaderMajority()
 	d.response.splitHeaderMajority()
+	d.search.watch(d.request, d.response)
 	d.tabs = qt.NewQTabWidget2()
 	d.tabs.SetDocumentMode(true)
 	d.tabs.AddTab(d.request.root, "Request")
 	d.tabs.AddTab(d.response.root, "Response")
 	d.messages = newMessagesView() // its tab is added only for WebSocket flows
 
-	// One Pretty/Raw selector in the tab row's corner, instead of a toolbar in
+	// One Pretty/Raw/HTML selector in the tab row's corner, instead of a toolbar in
 	// each view, controls the message on show. It saves the vertical space the
 	// per-view toolbars took.
 	d.pages = qt.NewQComboBox2()
-	d.pages.AddItems([]string{"Pretty", "Raw"})
-	d.pages.OnCurrentIndexChanged(func(i int) { d.currentMessageView().showRaw(i == 1) })
+	d.pages.AddItems(viewModes)
+	d.pages.OnCurrentIndexChanged(func(i int) { d.currentMessageView().showMode(viewMode(i)) })
 	d.tabs.SetCornerWidget(d.pages.QWidget)
 	d.tabs.OnCurrentChanged(func(int) { d.syncPages() })
 	flowLayout.AddWidget(d.tabs.QWidget)
@@ -184,7 +187,10 @@ func (d *detailPane) buildHeader() *qt.QWidget {
 
 	h.AddWidget2(d.summary.QWidget, 1)
 	h.AddWidget(d.target.QWidget)
+	d.search = newMessageSearch()
+
 	h.AddWidget(d.badge.QWidget)
+	h.AddWidget(d.search.root)
 	h.AddWidget(d.replay.QWidget)
 	h.AddWidget(d.drop.QWidget)
 	h.AddWidget(d.forward.QWidget)
@@ -325,13 +331,11 @@ func (d *detailPane) currentMessageView() *messageView {
 	return d.request
 }
 
-// syncPages points the shared Pretty/Raw selector at the visible message's
-// mode, so switching tabs or showing a new flow leaves the two in step.
+// syncPages points the shared Pretty/Raw/HTML selector at the visible
+// message's mode, so switching tabs or showing a new flow leaves the two in
+// step.
 func (d *detailPane) syncPages() {
-	idx := 0
-	if d.currentMessageView().rawShown() {
-		idx = 1
-	}
+	idx := int(d.currentMessageView().mode())
 	if d.pages.CurrentIndex() != idx {
 		d.pages.SetCurrentIndex(idx)
 	}

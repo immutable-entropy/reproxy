@@ -139,3 +139,24 @@ func isChunked(lines []string) bool {
 	}
 	return false
 }
+
+// RequestMethod is the method of a request's start line ("POST /x
+// HTTP/1.1" → "POST"), or "" if the line has none.
+func RequestMethod(startLine string) string {
+	method, _, _ := strings.Cut(strings.TrimLeft(startLine, " "), " ")
+	return method
+}
+
+// WithMethod is a request's start line with its method replaced, the
+// request-target and version kept as they were. A method that isn't one
+// token (empty, or holding a space) leaves the line as it is.
+func WithMethod(startLine, method string) string {
+	if method == "" || strings.ContainsAny(method, " \t\r\n") {
+		return startLine
+	}
+	_, rest, ok := strings.Cut(strings.TrimLeft(startLine, " "), " ")
+	if !ok {
+		return method
+	}
+	return method + " " + rest
+}

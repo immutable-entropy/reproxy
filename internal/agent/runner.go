@@ -64,6 +64,9 @@ func (r *LoopRunner) Run(ctx context.Context, s Session, emit func(Message)) ([]
 		return nil, err
 	}
 	system := systemPrompt
+	if s.Instructions != "" {
+		system += "\n" + s.Instructions + "\n"
+	}
 	history := append([]Entry(nil), s.Convo...)
 	turn := Turn{Session: s.ID, Mode: s.Mode, AskedAt: askedAt(s)}
 	specs := r.tools.Specs()

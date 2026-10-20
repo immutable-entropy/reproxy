@@ -314,7 +314,7 @@ func TestCrawlStateSurvivesReopeningTheEngagement(t *testing.T) {
 	if err := c.Use(ar.DB()); err != nil {
 		t.Fatal(err)
 	}
-	settings := Settings{RequestsPerSecond: 20, Threads: 1, OnlyNew: true}
+	settings := Settings{RequestsPerSecond: 20, Threads: 1, OnlyNew: true, UserAgent: "Custom/1.0"}
 	crawlOnce(t, c, settings)
 	if err := c.Use(nil); err != nil {
 		t.Fatal(err)
@@ -353,6 +353,9 @@ func TestSettingsAreValidated(t *testing.T) {
 		{RequestsPerSecond: MaxRequestsPerSecond + 1, Threads: 1},
 		{RequestsPerSecond: 1, Threads: 0},
 		{RequestsPerSecond: 1, Threads: MaxThreads() + 1},
+		{RequestsPerSecond: 1, Threads: 1, UserAgent: "x\r\nX-Injected: 1"},
+		{RequestsPerSecond: 1, Threads: 1, UserAgent: "x\x00"},
+		{RequestsPerSecond: 1, Threads: 1, UserAgent: strings.Repeat("x", MaxUserAgent+1)},
 	} {
 		if s.Validate() == nil {
 			t.Errorf("%+v was accepted", s)
@@ -360,6 +363,40 @@ func TestSettingsAreValidated(t *testing.T) {
 	}
 	if err := DefaultSettings().Validate(); err != nil {
 		t.Errorf("the defaults are invalid: %v", err)
+	}
+	for _, ua := range UserAgents {
+		s := DefaultSettings()
+		s.UserAgent = ua.Value
+		if err := s.Validate(); err != nil {
+			t.Errorf("offered user agent %s is invalid: %v", ua.ID, err)
+		}
+	}
+}
+
+// Every request carries the chosen User-Agent, and reProxy's own when none
+// is chosen.
+func TestCrawlSendsTheUserAgent(t *testing.T) {
+	for _, tc := range []struct{ set, want string }{
+		{"", DefaultUserAgent},
+		{"Mozilla/5.0 (Test) Custom/2.0", "Mozilla/5.0 (Test) Custom/2.0"},
+	} {
+		var mu sync.Mutex
+		seen := map[string]int{}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			seen[r.UserAgent()]++
+			mu.Unlock()
+			fmt.Fprint(w, `<a href="/a">a</a>`)
+		}))
+		u, _ := url.Parse(srv.URL)
+		c := newCrawler(capture.NewStore(), scopeOf(u.Host), srv.URL+"/")
+		settings := fast()
+		settings.UserAgent = tc.set
+		crawlOnce(t, c, settings)
+		srv.Close()
+		if len(seen) != 1 || seen[tc.want] == 0 {
+			t.Errorf("with UserAgent %q the server saw %v, want only %q", tc.set, seen, tc.want)
+		}
 	}
 }
 

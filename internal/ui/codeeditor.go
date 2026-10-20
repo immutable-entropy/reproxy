@@ -52,6 +52,11 @@ type codeEditor struct {
 	issueLines map[int]bool // 0-based block numbers with a problem
 	nextIssue  int          // which problem the bar's link jumps to next
 
+	// searchTerm is what the message search is looking for, and found its
+	// highlights, drawn over the current-line band (see setSearch).
+	searchTerm string
+	found      []qt.QTextEdit__ExtraSelection
+
 	assist      bool
 	completer   *qt.QCompleter // tag-name completions (see editorassist.go)
 	completions *qt.QStringListModel
@@ -136,6 +141,10 @@ func newCodeEditor(opts editorOptions) *codeEditor {
 	c.edit.OnTextChanged(func() {
 		if c.validate && !c.edit.IsReadOnly() {
 			c.checkTimer.Start(checkDelay)
+		}
+		if c.searchTerm != "" {
+			c.found = findAll(c.edit.Document(), c.searchTerm, matchFormat())
+			c.highlightCurrentLine()
 		}
 	})
 	c.edit.OnViewportEvent(func(super func(*qt.QEvent) bool, e *qt.QEvent) bool {
@@ -450,6 +459,16 @@ func (c *codeEditor) paintGutter() {
 	}
 }
 
+// setSearch highlights every occurrence of term (ignoring case), or none
+// when it is empty, and says how many there are. The highlights follow the
+// text as it is edited or replaced.
+func (c *codeEditor) setSearch(term string) int {
+	c.searchTerm = term
+	c.found = findAll(c.edit.Document(), term, matchFormat())
+	c.highlightCurrentLine()
+	return len(c.found)
+}
+
 func (c *codeEditor) highlightCurrentLine() {
 	sel := qt.NewQTextEdit__ExtraSelection2()
 	fmtt := qt.NewQTextCharFormat()
@@ -460,6 +479,7 @@ func (c *codeEditor) highlightCurrentLine() {
 	cur.ClearSelection()
 	sel.SetCursor(*cur)
 	sels := []qt.QTextEdit__ExtraSelection{*sel}
+	sels = append(sels, c.found...)
 
 	// Problem underlines go on top of the current-line band.
 	if len(c.issues) > 0 {

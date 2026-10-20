@@ -20,15 +20,28 @@ import (
 // designated reviewer is the first profile whose toggle is on; it drives one
 // reused session so restarts don't pile them up, in auto mode so a background
 // turn never blocks on an approval no one is watching for.
+//
+// The brief is said once, as the session's standing instructions (sent with
+// the system prompt), and each round of new findings is a one-line nudge.
+// Each round also starts on a cleared context: the work left is whatever the
+// store has unscored, so nothing from an earlier round is needed, and
+// carrying it would send every past round's tool results with every request
+// of every later one.
+//
+// While it is enabled, a new finding is not announced as unread at once: it
+// waits for the reviewer's first look (findings.Finding.AwaitingReview).
+// Scoring it settles it — unread if notable, read if not — and when a turn
+// ends, the findings it set out to review that are still waiting (the turn
+// failed, was stopped, or didn't get to them) are released unread, so a
+// reviewer that can't review never hides anything.
 
 // reviewTitle names the session the reviewer drives, so it is recognised and
 // reused rather than a new one made each launch.
 const reviewTitle = "Findings review"
 
-// reviewInstruction is what the reviewer asks its agent to do when new
-// findings arrive. It is sent as a user turn because the runtime carries no
-// per-session system prompt for standing instructions.
-const reviewInstruction = "You are an expert security and quality assurance engineer that has been tasked with reviewing new " +
+// reviewInstructions are the review session's standing instructions
+// (agent.Session.Instructions).
+const reviewInstructions = "You are an expert security and quality assurance engineer that has been tasked with reviewing new " +
 	"findings discovered as part of a Security Assessment on a number of scoped systems. Findings are recorded " +
 	"by a number of automations and you must determine (a) if they warrant further review, and (b) two numeric scores: " +
 	"a confidence and a concern. Review every finding that has not been scored yet: list them with list_findings " +
@@ -40,10 +53,14 @@ const reviewInstruction = "You are an expert security and quality assurance engi
 	"exploitation. Score both for every finding. Only read and score; do not change or send any traffic. When every " +
 	"new finding has a confidence and a concern, stop."
 
+// reviewNudge starts each round of review.
+const reviewNudge = "New findings are waiting to be reviewed."
+
 // findingsReviewer drives the review session off the findings store's events.
 type findingsReviewer struct {
-	mgr *agent.Manager
-	log *slog.Logger
+	mgr   *agent.Manager
+	store *findings.Store
+	log   *slog.Logger
 
 	wake chan struct{}
 	quit chan struct{}
@@ -54,17 +71,22 @@ type findingsReviewer struct {
 	profileID string
 	sessionID string
 	dirty     bool // new findings are waiting to be reviewed
+	// batch is the findings that were waiting when the running turn
+	// started: the ones it is reviewing, released when it ends if it left
+	// any unscored. Findings that arrive meanwhile wait for the next turn.
+	batch []uint64
 }
 
 // newFindingsReviewer starts the reviewer's loop. It does nothing until
 // configure names a reviewing profile.
-func newFindingsReviewer(mgr *agent.Manager, log *slog.Logger) *findingsReviewer {
+func newFindingsReviewer(mgr *agent.Manager, store *findings.Store, log *slog.Logger) *findingsReviewer {
 	r := &findingsReviewer{
-		mgr:  mgr,
-		log:  log,
-		wake: make(chan struct{}, 1),
-		quit: make(chan struct{}),
-		done: make(chan struct{}),
+		mgr:   mgr,
+		store: store,
+		log:   log,
+		wake:  make(chan struct{}, 1),
+		quit:  make(chan struct{}),
+		done:  make(chan struct{}),
 	}
 	go r.loop()
 	return r
@@ -89,6 +111,17 @@ func (r *findingsReviewer) configure(ag config.Agents) {
 	r.enabled = profile != ""
 	r.mu.Unlock()
 
+	// New findings wait for the reviewer only while there is one. Turning
+	// it off releases every finding still waiting; turning it on picks up
+	// any left waiting by the last run (they are kept in the engagement).
+	if r.enabled {
+		r.store.SetReviewHold(r.holds)
+		r.pickUpWaiting()
+	} else {
+		r.store.SetReviewHold(nil)
+		r.release(nil)
+	}
+
 	// Reconcile the review sessions with the config. Keep (and, below, adopt)
 	// the one for the enabled profile; remove any other — a stale session from
 	// a reviewer that was turned off, or from a previous agent. The user can't
@@ -104,6 +137,34 @@ func (r *findingsReviewer) configure(ag config.Agents) {
 		r.ensureSession(profile)
 	}
 	r.signal()
+}
+
+// holds is the findings store's review hold: while reviewing is enabled,
+// every finding waits for it except those its own agent records, which it
+// doesn't review. It runs under the store's lock, so it only reads r.
+func (r *findingsReviewer) holds(d findings.Draft) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.enabled && (r.sessionID == "" || d.Author != "agent session "+r.sessionID)
+}
+
+// pickUpWaiting queues a review if any finding is waiting for one: after a
+// restart, or once another engagement's findings are loaded.
+func (r *findingsReviewer) pickUpWaiting() {
+	if len(r.store.AwaitingReview()) > 0 {
+		r.mark()
+	}
+}
+
+// release lets findings stop waiting for the reviewer, so they arrive
+// unread: the given ones, or every one waiting for nil.
+func (r *findingsReviewer) release(ids []uint64) {
+	if ids != nil && len(ids) == 0 {
+		return
+	}
+	if _, err := r.store.ReleaseReview(ids); err != nil && r.log != nil {
+		r.log.Warn("findings reviewer couldn't release findings", "err", err)
+	}
 }
 
 // onFinding is subscribed to the findings store. It runs on the goroutine that
@@ -123,10 +184,18 @@ func (r *findingsReviewer) onFinding(e findings.Event) {
 		}
 		r.mark()
 	case findings.Reset:
-		// The engagement changed: any queued work was for the old one.
+		// The engagement may have changed: queued work and the running
+		// turn's batch were for the old one. Whatever is waiting now (in
+		// this engagement) is picked up afresh. Reset also follows a
+		// release or Mark All Read, which leaves waiting what still is.
 		r.mu.Lock()
 		r.dirty = false
+		r.batch = nil
+		enabled := r.enabled
 		r.mu.Unlock()
+		if enabled {
+			r.pickUpWaiting()
+		}
 	}
 }
 
@@ -138,8 +207,15 @@ func (r *findingsReviewer) onAgent(e agent.Event) {
 	}
 	r.mu.Lock()
 	sid := r.sessionID
+	var done []uint64
+	if e.Summary.ID == sid && e.Summary.Status != agent.StatusRunning {
+		done, r.batch = r.batch, nil
+	}
 	r.mu.Unlock()
 	if e.Summary.ID == sid && e.Summary.Status != agent.StatusRunning {
+		// The turn is over, however it ended: what it didn't score is
+		// released to the user rather than left waiting.
+		r.release(done)
 		r.signal()
 	}
 }
@@ -201,15 +277,25 @@ func (r *findingsReviewer) step() {
 		return // busy; onAgent wakes us when the turn finishes
 	}
 
-	// Take the work and start a turn. Clear the flag first; if the turn can't
-	// be started, put it back so the next wake retries.
+	// Take the work and start a turn on a fresh context. Clear the flag
+	// first; if the turn can't be started, put it back so the next wake
+	// retries, and release what was waiting: a review that can't start
+	// mustn't keep findings from the user.
+	batch := r.store.AwaitingReview()
 	r.mu.Lock()
 	r.dirty = false
+	r.batch = batch
 	r.mu.Unlock()
-	if err := r.mgr.Send(sid, reviewInstruction); err != nil {
+	err := r.mgr.ClearContext(sid)
+	if err == nil {
+		err = r.mgr.Send(sid, reviewNudge)
+	}
+	if err != nil {
 		r.mu.Lock()
 		r.dirty = true
+		r.batch = nil
 		r.mu.Unlock()
+		r.release(batch)
 		if r.log != nil {
 			r.log.Debug("findings reviewer couldn't start a turn", "err", err)
 		}
@@ -224,6 +310,8 @@ func (r *findingsReviewer) ensureSession(profile string) string {
 	for _, s := range r.mgr.List() {
 		if s.ProfileID == profile && s.Title == reviewTitle {
 			_ = r.mgr.SetManaged(s.ID, true)
+			// A session made before the brief was an instruction gets it now.
+			_ = r.mgr.SetInstructions(s.ID, reviewInstructions)
 			r.mu.Lock()
 			r.sessionID = s.ID
 			r.mu.Unlock()
@@ -235,6 +323,7 @@ func (r *findingsReviewer) ensureSession(profile string) string {
 	// no one is watching for; the instruction keeps it to reading and scoring.
 	_ = r.mgr.SetMode(sum.ID, agent.ModeAuto)
 	_ = r.mgr.SetManaged(sum.ID, true)
+	_ = r.mgr.SetInstructions(sum.ID, reviewInstructions)
 	r.mu.Lock()
 	r.sessionID = sum.ID
 	r.mu.Unlock()

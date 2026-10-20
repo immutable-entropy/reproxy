@@ -398,6 +398,20 @@ func (s *Store) Apply(b Batch) ([]Event, error) {
 	c := s.change()
 	for _, v := range b.Visits {
 		a := v.Address
+		if s.byKey[keyOf(TypeURL, a.Scheme, a.Host, a.Path)] == nil && !v.found() {
+			// A request for a path that isn't there (a probe for /.env that
+			// came back 404) doesn't put it in the Explorer. The origin
+			// that answered is still mapped, and the hit counted on it; a
+			// request nothing answered maps nothing. A URL already known is
+			// visited whatever the answer, so its record stays truthful.
+			if v.Status != 0 {
+				for at := s.ensureLocked(c, TypeHost, a.Scheme, a.Host, "", v.TargetID, OriginTraffic, v.Seen); at != nil; at = s.byKey[at.Parent] {
+					at.hit(v)
+					c.touch(at)
+				}
+			}
+			continue
+		}
 		e := s.ensureLocked(c, TypeURL, a.Scheme, a.Host, a.Path, v.TargetID, OriginTraffic, v.Seen)
 		e.visit(v)
 		p := c.touch(e)

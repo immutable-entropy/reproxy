@@ -24,18 +24,22 @@ type crawlWindow struct {
 	crawler *crawl.Crawler
 	onFlow  func(uint64)
 
-	status   *qt.QLabel
-	detail   *qt.QLabel
-	problem  *qt.QLabel
-	start    *qt.QPushButton
-	stop     *qt.QPushButton
-	rate     *qt.QDoubleSpinBox
-	threads  *qt.QSpinBox
-	onlyNew  *qt.QCheckBox
-	apiDocs  *qt.QCheckBox
-	counts   map[string]*qt.QLabel
-	activity *qt.QTreeWidget
-	timer    *qt.QTimer
+	status  *qt.QLabel
+	detail  *qt.QLabel
+	problem *qt.QLabel
+	start   *qt.QPushButton
+	stop    *qt.QPushButton
+	rate    *qt.QDoubleSpinBox
+	threads *qt.QSpinBox
+	onlyNew *qt.QCheckBox
+	apiDocs *qt.QCheckBox
+	// agent picks one of crawl.UserAgents or, as its last item, a custom
+	// User-Agent typed in customAgent.
+	agent       *qt.QComboBox
+	customAgent *qt.QLineEdit
+	counts      map[string]*qt.QLabel
+	activity    *qt.QTreeWidget
+	timer       *qt.QTimer
 
 	// shown is the newest result in the activity list, so the list is only
 	// rebuilt when there is something new.
@@ -141,6 +145,45 @@ func newCrawlWindow(parent *qt.QWidget, ctrl Controller, onFlow func(uint64)) *c
 		"recursively. “Look for API docs” also guesses at the usual OpenAPI/Swagger locations " +
 		fmt.Sprintf("(%d requests a host) until a description is found there. Leave “Only crawl new URLs” on to ", len(crawl.APIDocPaths)) +
 		"extend a crawl to hosts you have just promoted without fetching again what was crawled before.").QWidget)
+
+	b.AddWidget(sectionTitle("User agent"))
+	agentForm := newSettingsForm()
+	c.agent = qt.NewQComboBox2()
+	for i, ua := range crawl.UserAgents {
+		name := ua.Name
+		if i == 0 {
+			name += " (default)"
+		}
+		c.agent.AddItem(name)
+		value := ua.Value
+		if value == "" {
+			value = crawl.DefaultUserAgent
+		}
+		c.agent.SetItemData2(i, qt.NewQVariant14(value), int(qt.ToolTipRole))
+	}
+	c.agent.AddItem("Custom…")
+	c.agent.SetMinimumWidth(240)
+	c.agent.SetToolTip("The User-Agent header every request the crawl makes carries")
+	c.customAgent = qt.NewQLineEdit2()
+	c.customAgent.SetPlaceholderText("The User-Agent header, as it is to be sent")
+	c.customAgent.SetMaxLength(crawl.MaxUserAgent)
+	c.customAgent.SetMinimumWidth(360)
+	c.customAgent.SetVisible(false)
+	agentBox := qt.NewQWidget2()
+	ab := qt.NewQVBoxLayout(agentBox)
+	ab.SetContentsMargins(0, 0, 0, 0)
+	ab.SetSpacing(6)
+	ab.AddWidget(c.agent.QWidget)
+	ab.AddWidget(c.customAgent.QWidget)
+	c.agent.OnCurrentIndexChanged(func(int) {
+		c.customAgent.SetVisible(c.customChosen())
+		c.saveSettings()
+	})
+	c.customAgent.OnTextChanged(func(string) { c.saveSettings() })
+	agentForm.AddRow3("Send as", agentBox)
+	b.AddLayout(agentForm.QLayout)
+	b.AddWidget(helpText("A server can answer a browser, a phone or a search engine's crawler differently. Whichever " +
+		"is chosen, the crawl's pace and scope are its own: only the header changes.").QWidget)
 
 	b.AddWidget(sectionTitle("Speed"))
 	form := newSettingsForm()
@@ -264,6 +307,7 @@ func (c *crawlWindow) loadSettings() {
 	c.threads.SetValue(s.Threads)
 	c.onlyNew.SetChecked(s.OnlyNew)
 	c.apiDocs.SetChecked(s.APIDocs)
+	c.setUserAgent(s.UserAgent)
 	c.targetsShown = "" // rebuilt with the saved choice
 	c.rebuildTargets(s.ExcludedTargets)
 	if c.unsubTargets == nil {
@@ -321,11 +365,44 @@ func (c *crawlWindow) excluded() []string {
 	return c.targetPick.hiddenIDs()
 }
 
+// customChosen reports whether the user agent selector is on Custom, its
+// last item.
+func (c *crawlWindow) customChosen() bool { return c.agent.CurrentIndex() == len(crawl.UserAgents) }
+
+// userAgent is the User-Agent chosen: an offered one's value, or the custom
+// text (empty, the default, if none is typed).
+func (c *crawlWindow) userAgent() string {
+	if c.customChosen() {
+		return strings.TrimSpace(c.customAgent.Text())
+	}
+	if i := c.agent.CurrentIndex(); i >= 0 && i < len(crawl.UserAgents) {
+		return crawl.UserAgents[i].Value
+	}
+	return ""
+}
+
+// setUserAgent shows a saved User-Agent: the offered one it is, or Custom
+// with its text.
+func (c *crawlWindow) setUserAgent(value string) {
+	idx := len(crawl.UserAgents) // Custom
+	for i, ua := range crawl.UserAgents {
+		if ua.Value == value {
+			idx = i
+			break
+		}
+	}
+	c.agent.SetCurrentIndex(idx)
+	if idx == len(crawl.UserAgents) {
+		c.customAgent.SetText(value)
+	}
+	c.customAgent.SetVisible(c.customChosen())
+}
+
 func (c *crawlWindow) settings() crawl.Settings {
 	return crawl.Settings{
 		RequestsPerSecond: c.rate.Value(), Threads: c.threads.Value(),
 		OnlyNew: c.onlyNew.IsChecked(), APIDocs: c.apiDocs.IsChecked(),
-		ExcludedTargets: c.excluded(),
+		ExcludedTargets: c.excluded(), UserAgent: c.userAgent(),
 	}
 }
 
@@ -335,7 +412,10 @@ func (c *crawlWindow) saveSettings() {
 	if c.loading {
 		return
 	}
-	if err := c.crawler.SaveSettings(c.settings()); err != nil && !errors.Is(err, crawl.ErrRunning) {
+	switch err := c.crawler.SaveSettings(c.settings()); {
+	case err == nil:
+		c.showProblem("") // a setting typed wrong and then put right
+	case !errors.Is(err, crawl.ErrRunning):
 		c.showProblem(err.Error())
 	}
 }
@@ -424,7 +504,8 @@ func (c *crawlWindow) refresh() {
 
 	c.start.SetEnabled(!st.Running)
 	c.stop.SetEnabled(st.Running && !st.Stopping)
-	for _, w := range []*qt.QWidget{c.rate.QWidget, c.threads.QWidget, c.onlyNew.QWidget, c.apiDocs.QWidget} {
+	for _, w := range []*qt.QWidget{c.rate.QWidget, c.threads.QWidget, c.onlyNew.QWidget, c.apiDocs.QWidget,
+		c.agent.QWidget, c.customAgent.QWidget} {
 		w.SetEnabled(!st.Running)
 	}
 	if c.targetPick != nil {

@@ -12,7 +12,7 @@ func kindsTree() *Map {
 		flow(2, "GET", "app.test", "/static/app.js", "", "", 200, "Content-Type: application/octet-stream\r\n", ""),
 		flow(3, "GET", "app.test", "/api/users", "", "", 200, "Content-Type: application/vnd.api+json\r\n", "{}"),
 		flow(4, "GET", "app.test", "/feed", "", "", 200, "Content-Type: application/rss+xml\r\n", ""),
-		flow(5, "GET", "app.test", "/pending", "", "", 0, "", ""),
+		flow(5, "GET", "app.test", "/ping", "", "", 204, "", ""), // no Content-Type
 	)
 }
 
@@ -26,7 +26,7 @@ func TestKinds(t *testing.T) {
 		"https://app.test/report.pdf":      KindFile,
 		"https://app.test/api/users":       KindJSON,
 		"https://app.test/feed":            KindXML,
-		"https://app.test/pending":         KindOther,
+		"https://app.test/ping":            KindOther,
 	} {
 		n := m.Find(key)
 		if n == nil || n.Entity == nil {
@@ -79,7 +79,7 @@ func TestFilterByKind(t *testing.T) {
 	if m.Find("https://app.test/").Entity == nil {
 		t.Error("Filter changed the original tree")
 	}
-	if f.Roots[0].Total != 4 { // app.js, users, feed, pending
+	if f.Roots[0].Total != 4 { // app.js, users, feed, ping
 		t.Errorf("filtered total = %d, want 4", f.Roots[0].Total)
 	}
 }

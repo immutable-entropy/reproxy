@@ -1,0 +1,128 @@
+# Unit tests, then supply-chain checks, on every push to any branch.
+#
+# The tests are two jobs, so the quick answer doesn't wait on the slow one:
+#   core  the Qt-free packages (make test-core, with -race), plus gofmt and
+#         go vet over them: a few minutes.
+#   ui    the packages that need Qt (make test-ui). It runs in Ubuntu 26.04,
+#         the release the devcontainer is built on, for the same Qt. The
+#         first run compiles the Qt bindings (about 20 minutes); after that
+#         they come from the build cache.
+#
+# Once both pass, two checks run (skipped if a test failed):
+#   deps       make deps-check: every module version, and the toolchain,
+#              first published 14 or more days ago or excused in
+#              deps-soak.allow (tools/depsoak).
+#   vulncheck  make vulncheck: govulncheck over every package, failing on a
+#              known vulnerability our code reaches. It loads the Qt
+#              packages too, so it runs in the Qt job's container.
+# Both need the network, and are time-dependent: a version reaching 14 days
+# makes its allow line STALE (reported, not a failure), and a newly
+# published vulnerability can fail a commit that passed yesterday.
+#
+# Actions are pinned to a release's commit, chosen like a Go dependency
+# (see deps-soak.allow): published 14 or more days before it is adopted.
+name: Tests and checks
+
+on:
+  push:
+    branches: ['**']
+  # The release workflow runs the same tests and checks before it builds.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch supersedes a run still going.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal ./tools)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet $(make -s print-core-pkgs)
+      - name: Test
+        run: make test-core
+
+  ui:
+    name: Qt packages
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 60
+    steps:
+      - name: Install Qt and a C++ toolchain
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git make build-essential pkg-config qt6-base-dev
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # Its own cache key, apart from the core job's, so the compiled
+          # Qt bindings are what this job saves and restores.
+          cache-dependency-path: |
+            go.sum
+            go.mod
+      - name: Test
+        run: make test-ui
+
+  deps:
+    name: Dependency soak
+    needs: [core, ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check module and toolchain ages
+        run: make deps-check
+
+  vulncheck:
+    name: Vulnerabilities
+    needs: [core, ui]
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 30
+    steps:
+      - name: Install Qt and a C++ toolchain
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git make build-essential pkg-config qt6-base-dev
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # The Qt job's cache: the same container and key.
+          cache-dependency-path: |
+            go.sum
+            go.mod
+      - name: govulncheck
+        run: make vulncheck

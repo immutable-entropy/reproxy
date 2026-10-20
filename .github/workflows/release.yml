@@ -1,0 +1,143 @@
+# Builds the Linux packages for a version tag on main and publishes them as
+# a GitHub Release.
+#
+# Pushing a tag like v1.2.3 (anything starting v and a digit) runs, in order:
+#   on-main   refuses a tag whose commit isn't on main, so nothing is
+#             released from a branch that hasn't been merged.
+#   tests     the whole of test.yml: unit tests, the dependency soak and
+#             govulncheck. Any failure stops the release.
+#   deb, rpm  packaging/package.sh, each on the distribution it is for, so
+#             its library dependencies are worked out against that
+#             distribution's Qt: the .deb in Ubuntu 26.04 (as the
+#             devcontainer), the .rpm in Fedora 44. The version is the tag's.
+#   release   creates the release for the tag, with the packages and a
+#             SHA256SUMS file, and notes generated from the commits. A tag
+#             with a hyphen (v1.2.0-rc1) is marked a pre-release. Run again
+#             for the same tag, it replaces the files on the existing release.
+#
+# Actions are pinned to a release's commit, published 14 or more days before
+# it is adopted (as in test.yml).
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  on-main:
+    name: Tag is on main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # every branch's history, origin/main among them
+          persist-credentials: false
+      - name: Check the tagged commit is on main
+        run: |
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "$GITHUB_REF_NAME ($GITHUB_SHA) is on main."
+          else
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main. Merge it first, then delete the tag and push it again."
+            exit 1
+          fi
+
+  tests:
+    name: Tests and checks
+    needs: on-main
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  deb:
+    name: Build .deb
+    needs: tests
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 60
+    steps:
+      - name: Install Qt and the packaging tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git make build-essential pkg-config qt6-base-dev dpkg-dev
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            go.mod
+      - name: Package
+        run: packaging/package.sh deb --version "$GITHUB_REF_NAME" --output dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deb
+          path: dist/*.deb
+          if-no-files-found: error
+
+  rpm:
+    name: Build .rpm
+    needs: tests
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    timeout-minutes: 60
+    steps:
+      - name: Install Qt and the packaging tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git make gcc-c++ pkgconf-pkg-config qt6-qtbase-devel rpm-build tar gzip findutils
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            go.mod
+      - name: Package
+        run: packaging/package.sh rpm --version "$GITHUB_REF_NAME" --output dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rpm
+          path: dist/*.rpm
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: [deb, rpm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and upload its files
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- *.deb *.rpm > SHA256SUMS && cat SHA256SUMS
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            flags=()
+            case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+            gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes "${flags[@]}"
+          fi
